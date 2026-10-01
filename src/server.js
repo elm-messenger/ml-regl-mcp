@@ -1,9 +1,12 @@
+#!/usr/bin/env node
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { GameRegistry } from "./game_host.js";
 
+const { version } = createRequire(import.meta.url)("../package.json");
 const registry = new GameRegistry();
 const host = process.env.ML_REGL_MCP_HOST || "127.0.0.1";
 const port = Number.parseInt(process.env.ML_REGL_MCP_PORT || "8765", 10);
@@ -11,10 +14,68 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
   throw new Error("ML_REGL_MCP_PORT must be an integer between 0 and 65535");
 }
 
+const websocketServer = new WebSocketServer({ host, port, maxPayload: 1024 * 1024 });
+const listening = new Promise((resolve) => {
+  websocketServer.once("listening", () => resolve(null));
+  websocketServer.once("error", (error) => resolve(error));
+});
+websocketServer.on("connection", (socket) => {
+  const game = registry.add(socket);
+  process.stderr.write(`ml-regl-mcp: game host ${game.id} connected\n`);
+  socket.on("close", () => process.stderr.write(`ml-regl-mcp: game host ${game.id} disconnected\n`));
+});
+websocketServer.on("listening", () => {
+  process.stderr.write(`ml-regl-mcp: WebSocket listener ws://${host}:${boundPort()}\n`);
+});
+websocketServer.on("error", (error) => {
+  process.stderr.write(`ml-regl-mcp: WebSocket error: ${error.message}\n`);
+  process.exitCode = 1;
+});
+
+// The instructions name the bound URL, so wait for the listener: the port
+// comes from ML_REGL_MCP_PORT and may be 0 (ephemeral).
+const listenError = await listening;
+
+function boundPort() {
+  const address = websocketServer.address();
+  return typeof address === "object" && address ? address.port : port;
+}
+
+function controlUrl() {
+  const connectHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+  return `ws://${connectHost.includes(":") ? `[${connectHost}]` : connectHost}:${boundPort()}`;
+}
+
+function instructions(url) {
+  const lines = [
+    "ml-regl-mcp controls running ml-regl games (desktop SDL or browser WebGL). Games connect out to this server's WebSocket listener; the server does not launch, build, or restart games.",
+    "",
+    `Game listener: ${url} (set by ML_REGL_MCP_HOST and ML_REGL_MCP_PORT in this server's MCP configuration). Always use this exact URL.`,
+  ];
+  if (listenError) {
+    lines.push(`WARNING: the listener failed to start (${listenError.message}). No game can connect until this server is restarted with a free ML_REGL_MCP_PORT.`);
+  }
+  lines.push(
+    "",
+    "Connecting a game (start it yourself, in the background, so it keeps running):",
+    `- Desktop: DECLGL_DEBUG=1 DECLGL_CONTROL_URL=${url} <game executable>. Run it from the directory its asset paths are relative to, usually the project root. DECLGL_REMOTE_CONTROL=1 in place of DECLGL_DEBUG=1 allows control but disables published state and logs.`,
+    `- Browser: open the game page with #mcp=${url} appended to its URL.`,
+    "- Then poll ml_regl_list_games until the game is listed with protocol 1. Pass its id as gameId when more than one game is connected.",
+    "",
+    "Working with a game:",
+    "- Prefer ml_regl_get_state (published state, recent logs, frame, clock). ml_regl_get_render_tree can be very large; use it when you need what is drawn on screen.",
+    "- ml_regl_step returns once frames are queued; poll ml_regl_get_state until frame has advanced before reading results. step and set_time switch the game to a deterministic clock that stays on after resume.",
+    "- Input coordinates are in the game's virtual resolution, not window pixels. Input sent while paused shows up in the view after the next stepped frame.",
+    "- Desktop screenshots are BMP files written by the game; the result gives the path. Browser screenshots are returned as images, but are blank unless the page enables preserveDrawingBuffer.",
+    "- ml_regl_quit exits a desktop game. A browser game stops its loop but stays listed, and stops answering, until its tab closes.",
+  );
+  return lines.join("\n");
+}
+
 const server = new McpServer({
   name: "ml-regl-mcp",
-  version: "0.1.0",
-});
+  version,
+}, { instructions: instructions(controlUrl()) });
 
 const gameIdSchema = z.string().optional().describe(
   "Game host id from ml_regl_list_games; omit when exactly one host is connected",
@@ -156,22 +217,6 @@ server.registerResource(
     contents: [{ uri: "ml-regl://games", mimeType: "application/json", text: JSON.stringify(registry.list(), null, 2) }],
   }),
 );
-
-const websocketServer = new WebSocketServer({ host, port, maxPayload: 1024 * 1024 });
-websocketServer.on("connection", (socket) => {
-  const game = registry.add(socket);
-  process.stderr.write(`ml-regl-mcp: game host ${game.id} connected\n`);
-  socket.on("close", () => process.stderr.write(`ml-regl-mcp: game host ${game.id} disconnected\n`));
-});
-websocketServer.on("listening", () => {
-  const address = websocketServer.address();
-  const actualPort = typeof address === "object" && address ? address.port : port;
-  process.stderr.write(`ml-regl-mcp: WebSocket listener ws://${host}:${actualPort}\n`);
-});
-websocketServer.on("error", (error) => {
-  process.stderr.write(`ml-regl-mcp: WebSocket error: ${error.message}\n`);
-  process.exitCode = 1;
-});
 
 async function main() {
   const transport = new StdioServerTransport();

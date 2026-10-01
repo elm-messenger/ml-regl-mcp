@@ -29,8 +29,10 @@ protocol extensions.
 
 ## Repository map
 
-- `src/server.js`: MCP tool and resource registration, the WebSocket listener,
-  and SIGINT/SIGTERM shutdown.
+- `src/server.js`: the WebSocket listener, the MCP `instructions`, MCP tool and
+  resource registration, and SIGINT/SIGTERM shutdown. The listener is bound
+  before the `McpServer` is created so the instructions can name the real
+  bound URL (`ML_REGL_MCP_HOST`/`ML_REGL_MCP_PORT`, including port `0`).
 - `src/game_host.js`: `GameHost` (one connected game: hello handshake, request
   and response correlation by id, 5 s timeouts, cached events) and
   `GameRegistry` (`game-N` ids, resolving a host when `gameId` is omitted).
@@ -43,7 +45,26 @@ protocol extensions.
   the binary is missing.
 
 Dependencies: `@modelcontextprotocol/sdk` ^1.30, `ws` ^8, `zod` ^3. The package
-is ESM (`"type": "module"`).
+is ESM (`"type": "module"`), and `engines` follows the SDK (`node >=18`). Only
+Node 24 has been tested.
+
+## Packaging
+
+The package is published to npm as `ml-regl-mcp` (BSD-3-Clause, same as
+ml-regl and ml-messenger). The `bin` entry `ml-regl-mcp` is `src/server.js`,
+which must keep its `#!/usr/bin/env node` line and executable bit. Users run it
+with `npx -y ml-regl-mcp`.
+
+- `files` is `["src"]`. npm always adds `package.json`, `README.md`, and
+  `LICENSE`, so tests, `AGENTS.md`, and the lockfile are not shipped. Check
+  with `npm pack --dry-run` after adding files.
+- `serverInfo.version` is read from `package.json`. Bump the version with
+  `npm version <patch|minor|major>`, never by editing source.
+- `prepublishOnly` runs only `test/mcp_stdio.test.js`, because the native e2e
+  test needs sibling build outputs. Run the full `npm test` yourself before a
+  release.
+- Publishing is the maintainer's action (`npm login`, then `npm publish`). Do
+  not publish from an agent session unless explicitly asked.
 
 ## Run and configure
 
@@ -62,8 +83,6 @@ npm test                     # node --test (both tests above)
   truthy values are `1`, `true`, `yes`, and `on`.
 - Browser game: open the page with `#mcp=ws://127.0.0.1:8765` (preferred),
   `#control=…`, `?mcp=ws://…`, or `?control=ws://…`.
-- The MCP config path in `README.md` points to another machine's home
-  directory (`/home/yxiang/...`). Change it to the local `src/server.js`.
 
 ## MCP surface
 
@@ -144,9 +163,10 @@ Gaps in this server:
   arrives as roughly 1.3–1.4 M characters of pretty-printed JSON, which is
   very large for an agent's context. Large trees can be a liability.
 - **`hasRenderTree` is always `false`.** No event ever fills it.
-- **Port collisions are silent.** A second server on the same port (for
-  example, two MCP clients) logs `EADDRINUSE` on stderr but keeps serving MCP
-  with no listener, so every call says "no game host is connected".
+- **A port collision does not stop the server.** A second server on the same
+  port (for example, two MCP clients) logs `EADDRINUSE` on stderr and keeps
+  serving MCP with no listener, so every call says "no game host is
+  connected". The only other signal is a `WARNING` line in its instructions.
 - **No authentication or Origin check** on the listener. Any local process,
   or any web page open in a local browser, can register as a game host. Keep
   the bind at `127.0.0.1`. `ControlProtocol.md` suggests putting tokens in the
@@ -235,6 +255,9 @@ remove generated `mcp_frame_*.bmp` files.
 
 - Keep `server.js` a thin mapping from MCP tools to wire methods. Correlation,
   timeouts, and registry logic belong in `game_host.js`.
+- The MCP `instructions` are the only setup guidance a new agent session gets.
+  Keep them in sync with tool and host behavior. Build URLs from `controlUrl()`
+  and never hardcode a port, because users change `ML_REGL_MCP_PORT`.
 - Tool names use the `ml_regl_` prefix, and inputs are validated with zod. Use
   camelCase on the MCP side and snake_case on the wire (`dtMs` → `dt_ms`,
   `milliseconds` → `ms`).

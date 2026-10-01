@@ -1,12 +1,39 @@
 {
   "name": "ml-regl-mcp",
   "version": "0.1.0",
-  "private": true,
+  "description": "MCP server for inspecting and controlling running ml-regl games",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ml-regl",
+    "ml-messenger",
+    "game",
+    "debugging"
+  ],
+  "author": "Yiming Xiang",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elm-messenger/ml-regl-mcp.git"
+  },
+  "homepage": "https://github.com/elm-messenger/ml-regl-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/elm-messenger/ml-regl-mcp/issues"
+  },
   "type": "module",
-  "description": "MCP server for controlling ml-regl game hosts",
+  "bin": {
+    "ml-regl-mcp": "src/server.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "node --test test/mcp_stdio.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
