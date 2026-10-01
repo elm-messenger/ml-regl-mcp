@@ -66,9 +66,10 @@ complete standalone app that was compiled and checked on screen.
   a warning, up to 1000 buffers; past that the subtree is dropped. Groups
   without effects, with or without a camera, draw straight into their
   parent's buffer and cost nothing from the pool.
-- Give both sides of a compositor something to draw. In the browser a
-  compositor whose side is `empty` draws nothing at all, while the desktop
-  host treats that side as a blank image.
+- A compositor side that draws nothing (`empty`, or a group with no draw
+  call in it) counts as a fully transparent image, so `linear_fade 0.5 a
+  empty` shows `a` at half opacity. Only a compositor with both sides empty
+  draws nothing.
 - The whole tree is encoded and sent every frame, so keep it proportional to
   what is on screen.
 
