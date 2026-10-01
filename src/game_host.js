@@ -15,7 +15,6 @@ export class GameHost {
     this.latestState = null;
     this.latestLogs = [];
     this.latestFrame = null;
-    this.latestRenderTree = null;
     this.pending = new Map();
     this.commandCounter = 0;
     this.closed = false;
@@ -48,7 +47,6 @@ export class GameHost {
       lastSeenAt: this.lastSeenAt,
       latestFrame: this.latestFrame,
       hasState: this.latestState !== null,
-      hasRenderTree: this.latestRenderTree !== null,
       logCount: this.latestLogs.length,
     };
   }

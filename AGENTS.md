@@ -119,7 +119,7 @@ npm test                     # node --test (both tests above)
 
 | Tool | Wire method | Notes |
 | --- | --- | --- |
-| `ml_regl_list_games` | (local) | id, runtime, protocol, capabilities, connectedAt/lastSeenAt, latestFrame, hasState, hasRenderTree, logCount |
+| `ml_regl_list_games` | (local) | id, runtime, protocol, capabilities, connectedAt/lastSeenAt, latestFrame, hasState, logCount |
 | `ml_regl_get_state` | `get_state` | `{paused, frame, time_ms, logs[], published?}` |
 | `ml_regl_get_render_tree` | `get_render_tree` | `{available, tree}`; the tree is the last rendered frame |
 | `ml_regl_pause` / `ml_regl_resume` | `pause` / `resume` | `{paused}` |
@@ -193,7 +193,6 @@ Gaps in this server:
   payload size exceeded". ml-messenger's Stress scene fits, but its tree
   arrives as roughly 1.3–1.4 M characters of pretty-printed JSON, which is
   very large for an agent's context. Large trees can be a liability.
-- **`hasRenderTree` is always `false`.** No event ever fills it.
 - **A port collision does not stop the server.** A second server on the same
   port (for example, two MCP clients) logs `EADDRINUSE` on stderr and keeps
   serving MCP with no listener, so every call says "no game host is
