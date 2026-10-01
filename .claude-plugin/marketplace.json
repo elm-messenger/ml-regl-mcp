@@ -1,0 +1,12 @@
+{
+  "name": "ml-regl",
+  "owner": { "name": "Yiming Xiang" },
+  "description": "Claude Code plugins for ml-regl and ml-messenger",
+  "plugins": [
+    {
+      "name": "ml-regl",
+      "source": "./",
+      "description": "ml-messenger and ml-regl skills plus the ml-regl MCP server"
+    }
+  ]
+}

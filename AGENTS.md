@@ -38,6 +38,8 @@ protocol extensions.
   `GameRegistry` (`game-N` ids, resolving a host when `gameId` is omitted).
 - `test/mcp_stdio.test.js`: checks that the stdio server lists its tools and
   resource. It needs no game.
+- `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+  `bin/plugin-server`, `skills/`: the Claude Code plugin (see below).
 - `test/native_mcp_e2e.test.js`: launches
   `../ml-regl/_build/default/test/test_fps_smoke_desktop.exe` and runs pause,
   step, render tree, input, screenshot, and quit through MCP. It needs a
@@ -65,6 +67,35 @@ with `npx -y ml-regl-mcp`.
   release.
 - Publishing is the maintainer's action (`npm login`, then `npm publish`). Do
   not publish from an agent session unless explicitly asked.
+
+## Claude Code plugin
+
+The repository is also the Claude Code plugin `ml-regl` and a marketplace
+holding only that plugin (`marketplace.json` has `"source": "./"`). It is
+installed from a checkout (`claude plugin marketplace add <path>`, then
+`claude plugin install ml-regl@ml-regl`), not from npm.
+
+- `plugin.json` declares the MCP server inline. It runs
+  `${CLAUDE_PLUGIN_ROOT}/bin/plugin-server`, which installs the production
+  dependencies with `npm ci` when `node_modules` is missing (an installed
+  plugin is a copy without it), then execs `src/server.js`. Like the server,
+  the launcher must write nothing but MCP to stdout. Keep the lockfile
+  committed, since `npm ci` needs it.
+- `skills/messenger/` and `skills/rendering/` are skills for
+  `../ml-messenger` and `../ml-regl` (invoked as `/ml-regl:messenger` and
+  `/ml-regl:rendering`). Each has a `SKILL.md` and `references/api.md` and
+  `references/examples.md`. They describe the sibling repositories' APIs, so
+  update them when those APIs change. Copy code into `examples.md` only from
+  a project that compiled against the installed libraries (and, for
+  rendering, was looked at through this server), not from memory.
+- The plugin version is `plugin.json`'s `version`; bump it with the package
+  version so `claude plugin update` picks up changes.
+- npm's `files` stays `["src"]`: the plugin files are not part of the npm
+  package.
+- Check with `claude plugin validate . --strict` (marketplace),
+  `claude plugin validate .claude-plugin/plugin.json --strict`, and
+  `claude plugin validate skills --strict`. To try changes without
+  installing, run `claude --plugin-dir .`.
 
 ## Run and configure
 

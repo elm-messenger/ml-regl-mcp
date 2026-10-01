@@ -1,0 +1,11 @@
+#!/bin/sh
+# Starts the MCP server for the Claude Code plugin. A plugin install is a copy
+# of this repository without node_modules, so install the dependencies on
+# first start. stdout is the MCP stream: everything else goes to stderr.
+set -e
+root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+if [ ! -d "$root/node_modules" ]; then
+    echo "ml-regl-mcp: installing dependencies in $root" >&2
+    npm ci --omit=dev --no-audit --no-fund --prefix "$root" >&2
+fi
+exec node "$root/src/server.js"
