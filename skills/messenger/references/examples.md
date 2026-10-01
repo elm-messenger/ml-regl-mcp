@@ -311,6 +311,11 @@ let config : User_data.t Ui.user_config =
         volume = 1.;
       };
     app_name = Some "Example";
+    init_window =
+      {
+        Ml_regl_core.Regl_proto.default_window_config with
+        title = Some "Example";
+      };
   }
 
 (* Paths are relative to the working directory (desktop) or the page (JS). *)

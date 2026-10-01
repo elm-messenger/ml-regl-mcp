@@ -153,14 +153,18 @@ type regl_start_config = {
   virt_width : float; virt_height : float;
   fbo_num : int;                         (* offscreen buffers for effects *)
   builtin_programs : string list option; (* None = all *)
-  window : window_config;                (* default_window_config *)
+  window : window_config;                (* default_window_config; see below *)
   app_name : string option;
 }
 val config_regl : regl_config -> regl_output
 type regl_config =
   | ConfigTimeInterval of time_interval  (* AnimationFrame | Millisecond of float *)
-  | ConfigWindow of window_config        (* { fullscreen; resizable } options *)
+  | ConfigWindow of window_config        (* None fields stay unchanged *)
   | ConfigMaxAssetsPerFrame of int
+type window_config = {
+  fullscreen : bool option; resizable : bool option;
+  title : string option;                 (* native window title / document.title *)
+}
 
 val load_texture : string -> string -> texture_options option -> regl_output
 type texture_options = {

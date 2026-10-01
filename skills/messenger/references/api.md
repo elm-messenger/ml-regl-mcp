@@ -35,7 +35,9 @@ type 'userdata user_config = {
   time_interval : Regl_proto.time_interval;   (* AnimationFrame | Millisecond of float *)
   default_global_data : 'userdata Base.global_data_init;
       (* { user_data; camera; volume } *)
-  app_name : string option;                   (* window title *)
+  app_name : string option;                   (* save_value/read_value namespace *)
+  init_window : Regl_proto.window_config;
+      (* default_window_config; set title = Some "Game" to name the window *)
 }
 
 type enabled_builtin_program =
