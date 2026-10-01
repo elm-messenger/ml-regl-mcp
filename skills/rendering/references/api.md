@@ -132,10 +132,13 @@ val static_string : string -> prog_value
 val static_strings : string list -> prog_value
 val static_bool : bool -> prog_value
 
-(* Effects and compositors; their input images are not bound on the
-   desktop host yet, see SKILL.md. *)
+(* Effects: the host binds the group's image to the named sampler
+   ([texture] in make_effect_simple, which also supplies a full-view vertex
+   shader with [varying vec2 vuv]). *)
 val make_effect_program : string -> regl_program -> regl_program
 val make_effect_simple : string -> (string * prog_value) list -> regl_program
+(* Compositors: the first renderable's image goes to the first sampler
+   ([t1] in make_compositor_simple), the second's to the second ([t2]). *)
 val make_compositor_program : string -> string -> regl_program -> regl_program
 val make_compositor_simple : string -> (string * prog_value) list -> regl_program
 ```

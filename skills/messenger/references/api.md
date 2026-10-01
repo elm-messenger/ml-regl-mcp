@@ -292,7 +292,8 @@ type resource_def =                                      (* Messenger.Resources 
   | Texture_res of string * Regl_proto.texture_options option   (* path *)
   | Audio_res of string                                  (* path *)
   | Font_res of string * string    (* atlas png, BMFont-style json (MSDF) *)
-  | Program_res of Regl_program.regl_program            (* custom shader *)
+  | Program_res of Regl_program.regl_program * Regl_proto.shader_language
+      (* custom shader; GlslEs100 works on both hosts, Glsl is native *)
   | Data_res of string             (* text file; read with Base.get_config_data *)
 type resource_defs = (string * resource_def) list        (* (name, def) *)
 

@@ -112,12 +112,23 @@ blurs `blur r` / `gblur r`, which return lists
 Compositors take two renderables: `linear_fade t a b`, `img_fade mask t
 invert a b`, `dst_over_src a b`, `mask_by_src a b`.
 
-**Custom effects and compositors don't work on the desktop host yet.**
-`Regl_program.make_effect_program` / `make_compositor_program` (and the
-`_simple` variants) build programs that expect the host to bind the input
-images, but the desktop host's custom-program path ignores them, so a custom
-effect samples whatever texture happened to be bound. Use the built-in
-effects and compositors, or draw with a custom program instead.
+Custom effects and compositors are programs (next section) whose inputs
+are images the host binds:
+
+- `Regl_program.make_effect_simple frag uniforms` supplies a full-view
+  vertex shader and binds the group's image to `uniform sampler2D texture`;
+  `varying vec2 vuv` runs from 0 to 1 across the view, with y up (0 at the
+  bottom). Apply it with `Regl_common.mk_effect name fields` in a group's
+  effect list.
+- `Regl_program.make_compositor_simple frag uniforms` binds the first
+  renderable's image to `t1` and the second's to `t2`; draw it with
+  `Regl_common.composite name fields a b`.
+- `make_effect_program sampler program` and `make_compositor_program
+  sampler1 sampler2 program` add the same bindings to a program with its own
+  vertex shader and sampler names.
+- The images are premultiplied, so keep the output premultiplied: to fade,
+  scale all four components together. Each effect or compositor takes a
+  buffer from the `fbo_num` pool.
 
 ## Custom programs
 
@@ -129,8 +140,9 @@ and fragment source plus how each attribute and uniform gets its value.
   `Regl_proto.create_regl_program ~shader_language:GlslEs100 name program`.
   The default, `Glsl`, means each host's native language (desktop GLSL 3.30
   core versus WebGL GLSL ES), so one source cannot satisfy both. The desktop
-  translates ES 1.00 to 3.30, so don't name an identifier `texture` (it
-  becomes the GLSL 3.30 function).
+  translates ES 1.00 to 3.30 and renames identifiers that would clash with
+  GLSL 3.30 functions (`texture`, `textureProj`), so a sampler may be named
+  `texture`.
 - `DynamicValue "k"` takes the value of the draw call's field `k`;
   `StaticValue` (`Regl_program.static_number`, `static_numbers`, ...) is a
   constant; `DynamicTextureValue "k"` binds the texture named by the string
@@ -155,9 +167,8 @@ and fragment source plus how each attribute and uniform gets its value.
 - Draw it with `Regl_common.atomic name [ Regl_common.nums "posize" [...];
   ... ]` once the host has replied `REGLProgramCreated name`; before that it
   draws nothing.
-- In ml-messenger, `Resources.Program_res` registers a program with the
-  default (native) language, so a shader registered that way only works on
-  one host.
+- In ml-messenger, register a program as a resource with its language:
+  `("gradient", Resources.Program_res (program, GlslEs100))`.
 
 ## A standalone ml-regl app
 

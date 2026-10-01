@@ -5,8 +5,8 @@ and was checked on the desktop host through the ml-regl MCP server (paused,
 clock set to 0, screenshot): built-in shapes, a texture cut from a sprite
 sheet at load time, MSDF text, a custom draw program in virtual coordinates
 (opaque and translucent), a group drawn through a camera with a built-in
-effect, a shape without an angle parameter turned through a camera, and a
-compositor.
+effect, a shape without an angle parameter turned through a camera, a
+built-in compositor, and a custom effect and compositor.
 
 The assets are a font atlas (`assets/font.png`, `assets/font.json`) and a
 32×32-cell sprite sheet (`assets/sheet.png`), copied from ml-messenger's
@@ -49,12 +49,14 @@ let () =
   Regl_backend.create_app Draw.Scene.init Draw.Scene.update Draw.Scene.view
 ```
 
-## A custom draw program: `programs.ml`
+## Custom programs: `programs.ml`
 
-GLSL ES 1.00, registered with `~shader_language:GlslEs100`. The vertex shader
-places a unit quad at `posize` (top-left corner and size in virtual units)
-and maps it through the host's `view` and `camera` uniforms exactly as the
-built-in programs do, so the program follows cameras like everything else.
+GLSL ES 1.00, registered with `~shader_language:GlslEs100`. The draw
+program's vertex shader places a unit quad at `posize` (top-left corner and
+size in virtual units) and maps it through the host's `view` and `camera`
+uniforms exactly as the built-in programs do, so the program follows cameras
+like everything else. The effect and the compositor sample the images the
+host binds to `texture`, `t1` and `t2`.
 
 ```ocaml
 (* A custom program, written in GLSL ES 1.00 and registered with
@@ -121,12 +123,50 @@ let draw_gradient (x, y) (w, h) a b =
       Regl_common.nums "color_b" (Regl_common.to_rgba_list b);
     ]
 
+(* A custom effect. The host binds the group's image to the sampler that
+   [make_effect_simple] declares as [texture]; the image is premultiplied. *)
+let tint : Regl_program.regl_program =
+  Regl_program.make_effect_simple
+    {|
+precision mediump float;
+uniform sampler2D texture;
+uniform vec4 tint;
+varying vec2 vuv;
+void main() {
+  vec4 c = texture2D(texture, vuv);
+  gl_FragColor = vec4(c.rgb * tint.rgb, c.a) * tint.a;
+}
+|}
+    [ ("tint", DynamicValue "tint") ]
+
+let tint_effect color =
+  Regl_common.mk_effect "tint"
+    [ Regl_common.nums "tint" (Regl_common.to_rgba_list color) ]
+
+(* A custom compositor: [t1] is the first renderable's image, [t2] the
+   second's. Left of [split] (0..1 across the view) shows the first. *)
+let split : Regl_program.regl_program =
+  Regl_program.make_compositor_simple
+    {|
+precision mediump float;
+uniform sampler2D t1;
+uniform sampler2D t2;
+uniform float split;
+varying vec2 vuv;
+void main() {
+  gl_FragColor = vuv.x < split ? texture2D(t1, vuv) : texture2D(t2, vuv);
+}
+|}
+    [ ("split", DynamicValue "split") ]
+
+let draw_split at a b = Regl_common.composite "split" [ Regl_common.num "split" at ] a b
+
 (* Commands that register them; send them from init. *)
 let create_all =
-  [
-    Regl_proto.create_regl_program ~shader_language:GlslEs100 "gradient"
-      gradient;
-  ]
+  List.map
+    (fun (name, program) ->
+      Regl_proto.create_regl_program ~shader_language:GlslEs100 name program)
+    [ ("gradient", gradient); ("tint", tint); ("split", split) ]
 ```
 
 ## The app: `scene.ml`
@@ -239,6 +279,18 @@ let view m =
       rotate_around (640., 600.) (0.5 +. t)
         [ rounded_rect (640., 600.) (160., 80.) 16. (Color.rgb 0.5 0.2 0.7) ];
       rect_centered (400., 600.) (160., 80.) (0.5 +. t) (Color.rgb 0.2 0.5 0.3);
+      (* a custom effect on the texture *)
+      (if ready m "hero" && ready m "tint" then
+         Regl_common.group
+           [ Programs.tint_effect (Color.rgba 1. 0.8 0.2 1.) ]
+           [ centered_texture (1150., 160.) (96., 96.) 0. "hero" ]
+       else empty);
+      (* a custom compositor: red left of x = 1024, blue right of it *)
+      (if ready m "split" then
+         Programs.draw_split 0.8
+           (rect (800., 640.) (450., 60.) Color.red)
+           (rect (800., 640.) (450., 60.) Color.blue)
+       else empty);
       (* text is drawn without the camera, on top *)
       textbox (20., 20.) 28. "Rendering example" "font" Color.black;
     ]
