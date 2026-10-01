@@ -197,12 +197,19 @@ instructions name the WebSocket URL it listens on (default
 4. Look with `ml_regl_get_render_tree` (search its string leaves for
    textbox text; trees of busy scenes are very large) or
    `ml_regl_screenshot` (desktop writes a BMP into the game's working
-   directory and returns its path; view it, then delete it).
+   directory and returns its path; view it, then delete it). A browser
+   screenshot is blank unless the page passes `{ attributes: { antialias:
+   false, depth: false, premultipliedAlpha: true, preserveDrawingBuffer: true
+   } }` as `MlREGL.init`'s third argument.
 5. `ml_regl_quit` when done.
 
 `step` and `ml_regl_set_time` switch the game to a controlled clock until it
-restarts. ml-messenger publishes no state or logs, so observe through the
-render tree and screenshots. Only one server can listen on a port; if every
+restarts. `ml_regl_get_state` shows only what the game reports through
+`Ml_regl_core.Regl_debug` (`log` becomes `logs`, `publish_state` becomes
+`published`); ml-messenger itself reports nothing, so call those from your
+code when you want to watch a value, or use the render tree and
+screenshots. Host errors, such as a shader that fails to compile, go to the
+game's own output. Only one server can listen on a port; if every
 call says no game is connected, another server (for example a manually added
 `ml-regl` MCP entry) may hold it.
 

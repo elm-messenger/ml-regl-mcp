@@ -14,6 +14,7 @@ names. If a signature here does not compile, read the installed interfaces:
 5. `Regl_proto`: commands, replies, events
 6. `Color`
 7. `Regl_audio` (standalone apps)
+8. `Regl_debug`
 
 ## 1. `Regl_common`
 
@@ -66,11 +67,11 @@ val encode_frame_pb : renderable -> bytes   (* textbox strings appear verbatim; 
 | `rect_texture_with_alpha pos size alpha name` | |
 | `centered_texture center size angle name` | |
 | `centered_texture_with_alpha center size angle alpha name` | |
-| `rect_texture_cropped pos size crop_pos crop_size name` | crop in 0..1 texture coordinates |
-| `centered_texture_cropped center size angle crop_pos crop_size name` | |
+| `rect_texture_cropped pos size crop_pos crop_size name` | crop position and size in 0..1 of the texture, from its top-left |
+| `centered_texture_cropped center size angle crop_pos crop_size name` | same crop convention |
 | `rect_texture_cropped_with_alpha`, `centered_texture_cropped_with_alpha` | as above, alpha before the name |
 | `texture p1 p2 p3 p4 name` | four corners, clockwise from top-left |
-| `texture_cropped p1 p2 p3 p4 uv1 uv2 uv3 uv4 name` | with a texture coordinate per corner |
+| `texture_cropped p1 p2 p3 p4 uv1 uv2 uv3 uv4 name` | a texture coordinate per corner: (0, 0) bottom-left, (1, 1) top-right |
 | `texture_with_alpha`, `texture_cropped_with_alpha` | alpha before the name |
 
 ```ocaml
@@ -83,8 +84,13 @@ type textbox_option = {
   letter_spacing : float option;
 }
 val default_textbox_option : textbox_option
+  (* fonts = [ "consolas" ], size 24, black; set fonts *)
 (* textbox_pro (x, y) { default_textbox_option with fonts = [ "font" ];
-     text = "..."; size = 24.; width = Some 400.; word_break = true } *)
+     text = "..."; size = 24.; width = Some 400. }
+   width wraps at word boundaries; word_break = true also breaks inside words.
+   align: "left" | "center" | "right"; valign: "top" | "center" | "bottom";
+   line_height and word_spacing are multipliers (default 1); tab_size counts
+   spaces (default 4). *)
 ```
 
 ## 3. `Regl_effects` and `Regl_compositors`
@@ -95,10 +101,14 @@ val alpha_mult : float -> regl_effect
 val color_mult : float -> float -> float -> float -> regl_effect
 val pixilation : float -> regl_effect
 val outline : float -> Color.t -> regl_effect
-val crt : float -> regl_effect
+val crt : float -> regl_effect                  (* scanline count *)
 val fxaa : regl_effect
-val blur : float -> regl_effect list            (* blur_h, blur_v *)
-val gblur : float -> regl_effect list           (* gblur_h, gblur_v *)
+val blur : float -> regl_effect list            (* blur_h r, blur_v r *)
+val gblur : float -> regl_effect list           (* 8 passes, radius x8 down to x1 *)
+val blur_h : float -> regl_effect               (* single passes *)
+val blur_v : float -> regl_effect
+val gblur_h : float -> regl_effect
+val gblur_v : float -> regl_effect
 
 (* Regl_compositors *)
 val linear_fade : float -> renderable -> renderable -> renderable   (* t in 0..1 *)
@@ -154,27 +164,33 @@ Commands (`regl_output`), returned from `init` and `update`:
 val start_regl : regl_start_config -> regl_output
 type regl_start_config = {
   virt_width : float; virt_height : float;
-  fbo_num : int;                         (* offscreen buffers for effects *)
+  fbo_num : int;                         (* starting size of the effect buffer pool *)
   builtin_programs : string list option; (* None = all *)
   window : window_config;                (* default_window_config; see below *)
-  app_name : string option;
+  app_name : string option;              (* desktop: storage directory; browser: unused *)
 }
 val config_regl : regl_config -> regl_output
 type regl_config =
   | ConfigTimeInterval of time_interval  (* AnimationFrame | Millisecond of float *)
   | ConfigWindow of window_config        (* None fields stay unchanged *)
-  | ConfigMaxAssetsPerFrame of int
+  | ConfigMaxAssetsPerFrame of int       (* desktop only *)
 type window_config = {
-  fullscreen : bool option; resizable : bool option;
-  title : string option;                 (* native window title / document.title *)
+  fullscreen : bool option; resizable : bool option;  (* desktop only *)
+  title : string option;                 (* native window title ("declgl" when
+                                            unset) / document.title *)
 }
 
 val load_texture : string -> string -> texture_options option -> regl_output
 type texture_options = {
   mag : texture_mag_option option;   (* MagNearest | MagLinear *)
   min : texture_min_option option;   (* MinNearest | MinLinear | ...Mipmap... *)
-  crop : ((int * int) * (int * int)) option;   (* pixels *)
+  crop : ((int * int) * (int * int)) option;   (* ((x, y), (w, h)), pixels from
+                                                  the top-left *)
+  flip_y : bool;                     (* mirror vertically, after the crop *)
 }
+val default_texture_options : texture_options   (* no crop, no flip *)
+(* load_texture "hero" "assets/sheet.png" (Some { default_texture_options with
+     mag = Some MagNearest; crop = Some ((0, 0), (32, 32)) }) *)
 val load_font : string -> string -> string -> regl_output     (* name, png, json *)
 val load_audio : string -> regl_output                        (* url *)
 val load_file : string -> regl_output                         (* text file *)
@@ -203,7 +219,7 @@ type regl_event =
   | ValueRead of { key : string; value : string option }
 
 type regl_recv_msg =
-  | REGLTextureLoaded of { name : string; width : int; height : int }
+  | REGLTextureLoaded of texture       (* { name; width; height } *)
   | REGLTextureLoadFail of { name : string; reason : string }
   | REGLFontLoaded of string
   | REGLFontLoadFail of { name : string; reason : string }
@@ -230,4 +246,20 @@ against the previous one. `audio ?config source start_ms` plays a loaded
 source from an absolute time; `group`, `silence`, `scale_volume v`,
 `scale_volume_at [(ms, v); ...]`, `offset_by ms`. `config = { playback_rate;
 start_at (ms into the sound); loop = Some { loop_start; loop_end } }`.
-`length source` is in seconds; `ends_at audio` is when it finishes.
+`Regl_audio.default_config` is the plain `config`. `length source` is in
+seconds; `ends_at audio : float option` is when it finishes, in absolute ms
+(`None` if a voice loops or never ends).
+
+## 8. `Regl_debug`
+
+What the game reports through these is what the MCP server's
+`ml_regl_get_state` returns (`logs`, `published`); the desktop host emits
+them only with `DECLGL_DEBUG=1`.
+
+```ocaml
+type level = Debug | Info | Warning | Error
+val log : ?level:level -> string -> unit
+val logf : ?level:level -> ('a, unit, string, unit) format4 -> 'a
+val publish_state : string -> unit        (* compact one-line JSON *)
+val publish_statef : ('a, unit, string, unit) format4 -> 'a
+```

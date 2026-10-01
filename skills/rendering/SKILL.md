@@ -61,11 +61,14 @@ complete standalone app that was compiled and checked on screen.
 - `Regl_builtin_programs.empty` draws nothing; use it for "not ready yet".
 - A group with effects is drawn into an offscreen buffer and the effects are
   applied to that image in order; `Regl_compositors` combine two renderables'
-  images (fades, masks). Both use offscreen buffers from a pool whose size is
-  the start config's `fbo_num` (5 is typical). When the pool runs out, the
-  desktop host drops further effects, so deeply nested effect groups need
-  more. Groups without effects, with or without a camera, draw straight into
-  their parent's buffer and cost nothing from the pool.
+  images (fades, masks). Both use offscreen buffers from a pool that starts
+  at the start config's `fbo_num` (5 is typical) and grows when needed, with
+  a warning, up to 1000 buffers; past that the subtree is dropped. Groups
+  without effects, with or without a camera, draw straight into their
+  parent's buffer and cost nothing from the pool.
+- Give both sides of a compositor something to draw. In the browser a
+  compositor whose side is `empty` draws nothing at all, while the desktop
+  host treats that side as a blank image.
 - The whole tree is encoded and sent every frame, so keep it proportional to
   what is on screen.
 
@@ -84,22 +87,34 @@ with BMFont JSON output, such as `msdf-bmfont-xml` (`-f json`).
 - `textbox_centered center size text font color`.
 - `textbox_mf` / `textbox_mf_centered` take a list of fonts, used as
   fallbacks for missing glyphs.
-- `textbox_pro pos { default_textbox_option with ... }` for wrapping
-  (`width` with `word_break`), `line_height`, `letter_spacing`,
-  `word_spacing`, `align`, `valign`, `thickness`, `italic`.
+- `textbox_pro pos { default_textbox_option with fonts = [ "font" ]; ... }`
+  sets everything else. Set `fonts`: the default is `[ "consolas" ]`.
+  `width` wraps lines at word boundaries, and `word_break = true` also breaks
+  inside words; `align` is `"left"`, `"center"` or `"right"`, `valign`
+  `"top"`, `"center"` or `"bottom"`; `line_height` and `word_spacing` are
+  multipliers (default 1), `tab_size` counts spaces (default 4).
 
 ## Textures and sprite sheets
 
-- Load with `load_texture name path options` (ml-messenger: `Texture_res`).
+- Load with `load_texture name path options` (ml-messenger: `Texture_res`),
+  where `options` is `None` or `Some { default_texture_options with ... }`.
   The host replies `REGLTextureLoaded { name; width; height }`; drawing a
-  texture that has not loaded draws nothing.
-- `options.crop = Some ((x, y), (w, h))` (pixels) loads part of an image as
-  its own texture. Load the same sheet several times under different names to
-  cut a sprite sheet. Use `mag = Some MagNearest` for crisp pixel art.
+  texture that has not loaded draws nothing. A texture shows the image as it
+  is in the file, on both hosts.
+- `crop = Some ((x, y), (w, h))` (pixels from the image's top-left) loads
+  part of an image as its own texture. Load the same sheet several times
+  under different names to cut a sprite sheet. `mag = Some MagNearest` keeps
+  pixel art crisp. `flip_y = true` mirrors the texture vertically (after the
+  crop). Font atlases are separate and never flipped.
 - Draw with `rect_texture pos size name`, `centered_texture center size angle
   name`, the `_with_alpha` variants, or `texture` with four corner points.
-  The `_cropped` draw variants take the crop as a position and size in
-  normalized texture coordinates (0 to 1), not pixels.
+  `rect_texture_cropped` and `centered_texture_cropped` draw part of a
+  texture, given as a position and size in fractions (0 to 1) of the texture
+  from its top-left corner. `texture_cropped` instead takes a texture
+  coordinate per corner, with (0, 0) at the texture's bottom-left and (1, 1)
+  at its top-right.
+- A custom program samples textures in the same coordinates: v = 1 is the
+  top of the image.
 - ml-messenger: `Render_texture.render_sprite runtime pos (w, h) name` keeps
   the aspect ratio when `w` or `h` is `0.`.
 
@@ -227,7 +242,14 @@ server, run the game from its project directory in the background with
 frame advanced, and look with `ml_regl_screenshot` (desktop: a BMP in the
 game's working directory; view it, then delete it) or
 `ml_regl_get_render_tree`. A program that fails to build is answered with
-`REGLProgramCreateFail`; the desktop host also logs shader errors (run with
-`DECLGL_DEBUG=1` and read the game's output).
+`REGLProgramCreateFail`; the desktop host prints the shader error to the
+game's output, not to the MCP logs. `ml_regl_get_state` returns only what
+the game reports itself: `Regl_debug.log` messages as `logs` and the last
+`Regl_debug.publish_state` value as `published`. In the browser,
+`ml_regl_screenshot` comes back blank unless the page keeps the drawing
+buffer: `MlREGL.init(canvas, MlApp, { attributes: { antialias: false,
+depth: false, premultipliedAlpha: true, preserveDrawingBuffer: true } })`
+(the object replaces all the default attributes).
 `ml_regl_quit` when done. The window is real: launch only when you need to
-look.
+look. ml-regl's `test/check_texture_parity.py` captures the same app on both
+hosts without MCP, which is handy for comparing them.

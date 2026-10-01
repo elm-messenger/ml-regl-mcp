@@ -202,13 +202,13 @@ let init () =
     :: config_regl (ConfigTimeInterval AnimationFrame)
     :: load_font "font" "assets/font.png" "assets/font.json"
     :: load_texture "sheet" "assets/sheet.png"
-         (Some { mag = Some MagNearest; min = None; crop = None })
+         (Some { default_texture_options with mag = Some MagNearest })
        (* one 32x32 cell of the sheet as its own texture *)
     :: load_texture "hero" "assets/sheet.png"
          (Some
             {
+              default_texture_options with
               mag = Some MagNearest;
-              min = None;
               crop = Some ((0, 0), (32, 32));
             })
     :: Programs.create_all )

@@ -31,11 +31,11 @@ type 'userdata user_config = {
   virtual_size : size;                        (* the coordinate space *)
   fbo_num : int;                              (* offscreen buffers; 5 is typical *)
   max_assets_per_frame : int;                 (* 0 = unlimited *)
-  enabled_program : enabled_builtin_program;  (* AllBuiltinProgram *)
+  enabled_program : enabled_builtin_program;  (* AllBuiltinProgram; see below *)
   time_interval : Regl_proto.time_interval;   (* AnimationFrame | Millisecond of float *)
   default_global_data : 'userdata Base.global_data_init;
       (* { user_data; camera; volume } *)
-  app_name : string option;                   (* save_value/read_value namespace *)
+  app_name : string option;                   (* desktop: storage directory *)
   init_window : Regl_proto.window_config;
       (* default_window_config; set title = Some "Game" to name the window *)
 }
@@ -43,6 +43,9 @@ type 'userdata user_config = {
 type enabled_builtin_program =
   | NoBuiltinProgram | CustomBuiltinProgramList of string list
   | TextOnlyBuiltinProgram | BasicShapesBuiltinProgram | AllBuiltinProgram
+(* TextOnly loads only "textbox"; BasicShapes adds triangle, circle, quad and
+   poly. Both leave out rect, rounded rects, textures, effects and
+   compositors (so transitions too): those draw nothing. *)
 
 type 'userdata input = {
   config : 'userdata user_config;
@@ -91,6 +94,7 @@ Runtime queries (`Base.get_* runtime`):
 | `get_current_scene r` | name of the active scene |
 | `get_loading_progress r` | `(loaded, total)` resources |
 | `get_sprite name r` | `Regl_proto.texture option` (`{ name; width; height }`) |
+| `get_fonts r`, `get_programs r` | `Internal.StringSet.t` of the loaded font / program names |
 | `get_config_data key r` | contents of a loaded `Data_res`, `string option` |
 | `get_local_value key r` | last saved or read storage value, `string option` |
 | `get_volume r` | master volume |
@@ -140,7 +144,7 @@ global components. Performed by the framework after the update.
 | `SOMUnloadGC key` | remove global components with that key's name |
 | `SOMCallGC (key, msg)` | send a typed message to a global component |
 | `SOMChangeFPS interval` | `AnimationFrame` or `Millisecond ms` |
-| `SOMChangeMaxAssetsPerFrame n` | asset upload rate (0 = unlimited) |
+| `SOMChangeMaxAssetsPerFrame n` | asset upload rate (0 = unlimited); desktop only |
 | `SOMLoadResource (name, def)` | load a resource at run time |
 | `SOMSaveValue (key, value)` | persist a string |
 | `SOMReadValue key` | read it back; answered by a `ValueRead` event |
@@ -217,6 +221,9 @@ type ('data, 'msg, 'userdata) concrete_global_component = {   (* in Scene *)
 
 type 'msg key
 val key : string -> 'msg key
+  (* each call makes a new key: define it once, next to the component, and
+     share it. SOMCallGC with another key of the same name is reported and
+     ignored; SOMUnloadGC matches by name. *)
 val make : ?key:'msg key -> ('data, 'msg, 'u) Scene.concrete_global_component ->
   'u Scene.global_component_storage
 ```
@@ -265,7 +272,7 @@ effects). From `Regl_builtin_programs` (positions and sizes are
 | `empty` | nothing |
 | `rect pos size color` | top-left corner |
 | `rect_centered center size angle color` | angle in radians |
-| `rounded_rect pos size radius color` | |
+| `rounded_rect center size radius color` | center, unlike `rect` |
 | `circle center radius color` | |
 | `triangle p1 p2 p3 color`, `quad p1 p2 p3 p4 color`, `poly points color` | |
 | `lines [(p, q); ...] color`, `linestrip points color`, `lineloop points color` | |
@@ -281,7 +288,7 @@ loaded texture, keeping its aspect ratio when `w` or `h` is `0.`.
 `Color`: `rgb r g b`, `rgba r g b a` (0..1), `black`, `white`, `red`,
 `green`, `blue`. Effects (`Regl_effects`) go in `group`'s first argument:
 `alpha_mult a`, `color_mult r g b a`, `pixilation s`, `outline w color`,
-`crt t`, and `fxaa` are single effects (`group [ alpha_mult 0.5 ] [...]`);
+`crt scanlines`, and `fxaa` are single effects (`group [ alpha_mult 0.5 ] [...]`);
 `blur r` and `gblur r` return lists (`group (blur 2.) [...]`). Compositors (`Regl_compositors`): `linear_fade t a b`,
 `img_fade mask t invert a b`, `dst_over_src a b`, `mask_by_src a b`.
 
@@ -300,9 +307,17 @@ type resource_defs = (string * resource_def) list        (* (name, def) *)
 type texture_options = {                                 (* Regl_proto *)
   mag : texture_mag_option option;        (* MagNearest for pixel art *)
   min : texture_min_option option;
-  crop : ((int * int) * (int * int)) option;   (* ((x, y), (w, h)) in pixels *)
+  crop : ((int * int) * (int * int)) option;   (* ((x, y), (w, h)), pixels
+                                                  from the top-left *)
+  flip_y : bool;                          (* mirror vertically *)
 }
+(* Texture_res ("assets/sheet.png", Some { Regl_proto.default_texture_options
+     with mag = Some MagNearest; crop = Some ((0, 0), (32, 32)) }) *)
 ```
+
+A texture shows the image as it is in the file on both hosts; `flip_y`
+mirrors it (after the crop). On desktop, paths are relative to the working
+directory and must stay inside it (no absolute paths or `..`).
 
 Several names may share one path; cropping one sheet into many named textures
 is the usual sprite-sheet setup.
@@ -321,16 +336,22 @@ type audio_common_option = { rate : float; start : float }   (* start: ms into t
 (Audio_channel channel)`. Transforms for `SOMTransformAudio`:
 `Regl_audio.scale_volume v`, `scale_volume_at [(time_ms, v); ...]`,
 `offset_by ms`. An `A_loop` without a loop config plays once.
+`Audio.new_audio_channel runtime` is a channel no sound is playing on;
+`Audio.audio_duration runtime name` is a loaded sound's length in seconds
+(`float option`).
 
 ## 11. Camera
 
 ```ocaml
-type t = Regl_common.camera = { x : float; y : float; zoom : float; rotation : float }
+type t = Regl_common.camera   (* { x; y; zoom; rotation }: Regl_common's fields,
+                                 so write { Regl_common.x = ...; ... } or annotate : Camera.t *)
+val origin : t                  (* (0, 0), zoom 1 *)
 val default : width:float -> height:float -> t   (* centered: shows 0..width, 0..height *)
 val judge_mouse_rect : mouse:float * float -> pos:float * float -> size:float * float -> bool
 val judge_mouse_circle : mouse:float * float -> center:float * float -> radius:float -> bool
 val mouse_to_camera_space : view_size:float * float -> t -> float * float -> float * float
 val judge_mouse_rect_with_camera : view_size:_ -> camera:t -> mouse:_ -> pos:_ -> size:_ -> bool
+val judge_mouse_circle_with_camera : view_size:_ -> camera:t -> mouse:_ -> center:_ -> radius:_ -> bool
 val world_to_view : t -> float * float -> float * float
 val view_to_world : t -> float * float -> float * float
 ```
