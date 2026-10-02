@@ -6,59 +6,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { PNG } from "pngjs";
-import jpeg from "jpeg-js";
 import { WebSocket } from "ws";
 
 // A scripted host behind the real server: no game, no window.
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const RED = [255, 0, 0];
-const BLUE = [0, 0, 255];
-
-// A 200x200 window letterboxing a 100x50 virtual area into rows 50..149: the
-// view's left half is red, its right half blue, the bars black. Written as a
-// bottom-up 32-bit BI_BITFIELDS bitmap with a V4 header, like SDL_SaveBMP.
-function letterboxBmp() {
-  const w = 200;
-  const h = 200;
-  const header = 14 + 108;
-  const buf = Buffer.alloc(header + w * h * 4);
-  buf.write("BM", 0, "latin1");
-  buf.writeUInt32LE(buf.length, 2);
-  buf.writeUInt32LE(header, 10);
-  buf.writeUInt32LE(108, 14);
-  buf.writeInt32LE(w, 18);
-  buf.writeInt32LE(h, 22);
-  buf.writeUInt16LE(1, 26);
-  buf.writeUInt16LE(32, 28);
-  buf.writeUInt32LE(3, 30);
-  buf.writeUInt32LE(0x000000ff, 54);
-  buf.writeUInt32LE(0x0000ff00, 58);
-  buf.writeUInt32LE(0x00ff0000, 62);
-  buf.writeUInt32LE(0xff000000, 66);
-  for (let y = 0; y < h; y += 1) {
-    for (let x = 0; x < w; x += 1) {
-      const inView = y >= 50 && y < 150;
-      const [r, g, b] = !inView ? [0, 0, 0] : x < 100 ? RED : BLUE;
-      const o = header + ((h - 1 - y) * w + x) * 4;
-      buf.writeUInt32LE(((255 << 24) | (b << 16) | (g << 8) | r) >>> 0, o);
-    }
-  }
-  return buf;
-}
-
-// The same 100x50 view as a browser canvas PNG.
-function viewPng() {
-  const png = new PNG({ width: 100, height: 50 });
-  for (let y = 0; y < 50; y += 1) {
-    for (let x = 0; x < 100; x += 1) {
-      const [r, g, b] = x < 50 ? RED : BLUE;
-      png.data.set([r, g, b, 255], (y * 100 + x) * 4);
-    }
-  }
-  return `data:image/png;base64,${PNG.sync.write(png).toString("base64")}`;
-}
+// The host encodes screenshots; the server passes the bytes through.
+const IMAGE = Buffer.from("not really a JPEG, but the server must not care");
 
 const field = (shape, key, v) => {
   if (shape === "desktop") {
@@ -93,7 +47,7 @@ function tree(shape) {
 }
 
 class FakeHost {
-  constructor(port) {
+  constructor(port, capabilities = ["screenshot_view"]) {
     this.frame = 0;
     this.timeMs = 70000; // the game has run for 70 s on the wall clock
     this.controlled = false;
@@ -105,7 +59,7 @@ class FakeHost {
     this.ready = new Promise((resolve) => this.socket.once("open", resolve));
     this.socket.on("open", () => this.send({
       type: "hello", protocol: 1, runtime: "ml-regl-desktop",
-      capabilities: ["pause", "resume", "step", "set_time", "get_state", "get_render_tree", "screenshot", "input"],
+      capabilities: ["pause", "resume", "step", "set_time", "get_state", "get_render_tree", "screenshot", "input", ...capabilities],
     }));
     this.socket.on("message", (data) => this.handle(JSON.parse(data.toString())));
   }
@@ -138,9 +92,15 @@ class FakeHost {
     }
     if (method === "get_render_tree") return this.respond(id, { available: true, tree: tree(this.shape) });
     if (method === "screenshot") {
-      if (this.shape === "browser") return this.respond(id, { data_url: viewPng() });
-      await fs.writeFile(params.path, letterboxBmp());
-      return this.respond(id, { path: params.path });
+      const info = {
+        format: params.format ?? "bmp", width: 100, height: 50,
+        view: { x: 0, y: 50, width: 200, height: 100 }, virtual: { width: 100, height: 50 }, pixels_per_unit: 1,
+      };
+      if (this.shape === "browser") {
+        return this.respond(id, { data_url: `data:image/jpeg;base64,${IMAGE.toString("base64")}`, ...info });
+      }
+      await fs.writeFile(params.path, IMAGE);
+      return this.respond(id, { path: params.path, ...info });
     }
     return this.send({ type: "response", id, ok: false, error: { message: "unknown method" } });
   }
@@ -152,13 +112,6 @@ async function callTool(client, name, args = {}) {
   assert.equal(response.isError, undefined, text);
   return { value: JSON.parse(text), content: response.content };
 }
-
-function pixel(img, x, y) {
-  const o = (y * img.width + x) * 4;
-  return [img.data[o], img.data[o + 1], img.data[o + 2]];
-}
-
-const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 40);
 
 test("the server's step, keys, render tree and screenshots on a scripted host", async () => {
   const transport = new StdioClientTransport({
@@ -228,32 +181,51 @@ test("the server's step, keys, render tree and screenshots on a scripted host", 
     const rects = (await callTool(client, "ml_regl_query_render_tree", { program: "rect" })).value;
     assert.deepEqual(rects.matches.map((m) => m.path), ["1.0"]);
 
-    // Desktop screenshot: the letterbox is cropped, one pixel per unit.
+    // Screenshots: the host crops, scales and encodes; the server forwards
+    // the request and returns the image as it came.
     host.shape = "desktop";
-    const before = (await fs.readdir(os.tmpdir())).filter((n) => n.startsWith("ml-regl-mcp-")).length;
-    const shot = await callTool(client, "ml_regl_screenshot", { virtualSize: { width: 100, height: 50 }, format: "png" });
-    assert.deepEqual(shot.value.capture.view, { x: 0, y: 50, width: 200, height: 100 });
+    const tmpCount = async () => (await fs.readdir(os.tmpdir())).filter((n) => n.startsWith("ml-regl-mcp-")).length;
+    const before = await tmpCount();
+    host.log = [];
+    const shot = await callTool(client, "ml_regl_screenshot", { region: { x: 50, y: 0, width: 50, height: 50 } });
+    const { path: tmpPath, ...sent } = host.log.find((e) => e.method === "screenshot").params;
+    assert.deepEqual(sent, {
+      area: "view", scale: "virtual", max_width: 1280, format: "jpeg", quality: 70,
+      region: { x: 50, y: 0, width: 50, height: 50 },
+    });
+    assert.ok(tmpPath.endsWith(".jpg"));
+    assert.equal(shot.content.find((c) => c.type === "image").data, IMAGE.toString("base64"));
+    assert.equal(shot.value.format, "image/jpeg");
+    assert.deepEqual(shot.value.view, { x: 0, y: 50, width: 200, height: 100 });
     assert.equal(shot.value.pixelsPerUnit, 1);
-    const png = PNG.sync.read(Buffer.from(shot.content.find((c) => c.type === "image").data, "base64"));
-    assert.deepEqual([png.width, png.height], [100, 50]);
-    assert.ok(near(pixel(png, 10, 10), RED));
-    assert.ok(near(pixel(png, 90, 40), BLUE));
-    const after = (await fs.readdir(os.tmpdir())).filter((n) => n.startsWith("ml-regl-mcp-")).length;
-    assert.equal(after, before, "the temporary BMP is deleted");
+    assert.equal(await tmpCount(), before, "the temporary file is deleted");
 
-    // A region, remembered virtual size, JPEG by default.
-    const part = await callTool(client, "ml_regl_screenshot", { region: { x: 50, y: 0, width: 50, height: 50 } });
-    assert.equal(part.value.format, "image/jpeg");
-    const jpg = jpeg.decode(Buffer.from(part.content.find((c) => c.type === "image").data, "base64"));
-    assert.deepEqual([jpg.width, jpg.height], [50, 50]);
-    assert.ok(near(pixel(jpg, 25, 25), BLUE));
+    const kept = path.join(os.tmpdir(), `kept-${process.pid}.png`);
+    const saved = await callTool(client, "ml_regl_screenshot", { format: "png", path: kept });
+    assert.equal(saved.value.savedPath, kept);
+    assert.equal(saved.value.format, "image/png");
+    assert.deepEqual(await fs.readFile(kept), IMAGE);
+    await fs.rm(kept);
 
-    // Browser screenshot: the canvas is the view.
     host.shape = "browser";
-    const web = await callTool(client, "ml_regl_screenshot", { format: "png" });
-    const webPng = PNG.sync.read(Buffer.from(web.content.find((c) => c.type === "image").data, "base64"));
-    assert.deepEqual([webPng.width, webPng.height], [100, 50]);
-    assert.ok(near(pixel(webPng, 10, 10), RED));
+    const web = await callTool(client, "ml_regl_screenshot", {});
+    assert.equal(web.content.find((c) => c.type === "image").data, IMAGE.toString("base64"));
+
+    // A host from before screenshot_view gets its raw capture and a note.
+    const firstId = (await callTool(client, "ml_regl_list_games")).value[0].id;
+    const old = new FakeHost(port, []);
+    await old.ready;
+    let oldId;
+    for (let i = 0; i < 50 && !oldId; i += 1) {
+      const games = (await callTool(client, "ml_regl_list_games")).value;
+      oldId = games.find((g) => g.id !== firstId && g.protocol === 1)?.id;
+      if (!oldId) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    old.shape = "browser";
+    const legacy = await callTool(client, "ml_regl_screenshot", { gameId: oldId });
+    assert.match(legacy.value.note, /predates screenshot_view/);
+    assert.equal(old.log.find((e) => e.method === "screenshot").params.area, undefined);
+    old.socket.close();
   } finally {
     host.socket.close();
     await client.close();

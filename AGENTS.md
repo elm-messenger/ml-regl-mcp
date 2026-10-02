@@ -39,12 +39,10 @@ protocol extensions.
   `GameRegistry` (`game-N` ids, resolving a host when `gameId` is omitted).
 - `src/render_tree.js`: normalizes both hosts' render-tree JSON into one shape
   and builds the bounded views agents get: the summary and node queries.
-- `src/image.js`: screenshot processing: BMP and PNG decoding, letterbox and
-  region cropping, box-filter downscaling, JPEG/PNG encoding.
 - `test/fake_host.test.js`: a scripted host behind the real server: waiting
   steps, the clock carried over, key sequences, render-tree summary and
-  queries for both host shapes, and screenshot cropping and encoding. It needs
-  no game.
+  queries for both host shapes, and what screenshots ask of the host and
+  return. It needs no game.
 - `test/mcp_stdio.test.js`: checks that the stdio server lists its tools and
   resource. It needs no game.
 - `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
@@ -55,10 +53,7 @@ protocol extensions.
   prebuilt native ml-regl, opens a real SDL window, and is not skipped when
   the binary is missing.
 
-Dependencies: `@modelcontextprotocol/sdk` ^1.30, `ws` ^8, `zod` ^3, and for
-screenshots `pngjs` ^7 (MIT) and `jpeg-js` ^0.4 (BSD-3-Clause), both pure
-JavaScript; they can go once the hosts crop and encode screenshots themselves.
-The package
+Dependencies: `@modelcontextprotocol/sdk` ^1.30, `ws` ^8, `zod` ^3. The package
 is ESM (`"type": "module"`), and `engines` follows the SDK (`node >=18`). Only
 Node 24 has been tested.
 
@@ -160,7 +155,7 @@ npm test                     # node --test (both tests above)
 | `ml_regl_set_time` | `set_time` | `milliseconds` ≥ 0 sent as `ms` |
 | `ml_regl_send_input` | `input` | `kind` ∈ key_down, key_up, key_press (down then up), mouse_down, mouse_up, mouse_move; `code`, `button` 1..5, `x`, `y` |
 | `ml_regl_send_keys` | `pause`, `input`, `step` | `keys[]`, `holdFrames` (default 0), `framesAfter` (default 1), `dtMs`, `timeoutMs`; returns `{pressed, done, frame, time_ms}` |
-| `ml_regl_screenshot` | `screenshot` | `virtualSize` (remembered per game), `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the BMP); returns info text plus MCP `image` content |
+| `ml_regl_screenshot` | `screenshot` with `area: "view"`, `scale: "virtual"` | `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the file); the host crops, scales and encodes; returns info (size, `view`, `virtual`, `pixelsPerUnit`) plus MCP `image` content. Hosts without the `screenshot_view` capability get their raw capture back with a note |
 | `ml_regl_quit` | `quit` | `{quit: true}` |
 | resource `ml-regl://games` | (local) | same JSON as `ml_regl_list_games` |
 
@@ -236,11 +231,7 @@ Gaps in this server:
 - **Ids are not stable.** `game-N` comes from a per-process counter, and a
   reconnect gets a new id.
 - `ml_regl_screenshot` is annotated `readOnlyHint` even though desktop hosts
-  write a temporary BMP (the server deletes it unless `path` was given).
-- **Screenshot cropping needs `virtualSize`.** The hosts do not report where
-  the virtual area lies, so the server computes the desktop letterbox from
-  the window size and the `virtualSize` the agent passes; without it the
-  image is the whole window.
+  write a temporary file (the server deletes it unless `path` was given).
 
 Host behaviors to know when driving games (these come from ml-regl, not this
 repo):
@@ -250,10 +241,10 @@ repo):
   events bypass the host's window-to-virtual mapping.
 - **Input while paused is applied immediately** to the OCaml model, but the
   render tree and screenshot only change after a frame runs (`step 1`).
-- **`step` and `set_time` switch the clock to controlled mode for good.** The
-  protocol starts it at 0 on a first `step` without `set_time`; this server
-  sets it to the game's current `time_ms` first, so MCP clients see time
-  continue. After `resume`, time keeps advancing by `dt_ms` per frame, not by
+- **`step` and `set_time` switch the clock to controlled mode for good.** It
+  continues from the game's current time (hosts before ml-regl `63c3919`
+  started it at 0; this server sets it to the game's `time_ms` first for
+  them). After `resume`, time keeps advancing by `dt_ms` per frame, not by
   wall clock. Restarting the game is the only way back to wall-clock time.
 - **The render tree JSON differs by runtime.** Desktop uses
   `fields[].value.numbers` / `value.number` and omits empty fields. Browser
@@ -265,11 +256,12 @@ repo):
   `published: null`, and `time_ms` is the loop time until the clock is
   controlled (`null` from ml-regl-js before `d8860ce`).
   `logs` are plain strings with no levels.
-- **Desktop screenshot.** The game process writes a BMP of the *window back
-  buffer* (window pixels including letterbox bars; 1419×1670, about 9.5 MB, in
-  testing). The server asks for it in a temporary file, crops and encodes it
-  (a 1280×720 JPEG was about 70 KB), and deletes the file. An unwritable path
-  gives "screenshot failed". Capture while paused works.
+- **Desktop screenshot.** The game process reads the window back buffer
+  (1419×1670 with letterbox bars in testing), crops it to the view or a
+  region, scales it with a box filter and writes BMP, PNG (SDL) or JPEG
+  (stb_image_write) to the requested path. The server uses a temporary file
+  and deletes it; a 1280×720 JPEG was about 50 KB. An unwritable path gives
+  "screenshot failed". Capture while paused works.
 - **Browser screenshots are taken right after a frame is drawn.** The WebGL
   context has no `preserveDrawingBuffer`, so the browser clears the canvas
   once a frame is shown. ml-regl-js therefore queues `screenshot` and answers
@@ -325,7 +317,8 @@ remove generated `mcp_frame_*.bmp` files.
 
 - Keep `server.js` a thin mapping from MCP tools to wire methods. Correlation,
   timeouts, waiting, and registry logic belong in `game_host.js`; render-tree
-  and image processing in `render_tree.js` and `image.js`. Tools may combine
+  processing in `render_tree.js`. Images are cropped and encoded by the
+  hosts, not here. Tools may combine
   existing wire methods and process their results, but never extend the
   protocol on the server side.
 - The MCP `instructions` are the only setup guidance a new agent session gets.

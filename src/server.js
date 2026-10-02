@@ -9,7 +9,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { GameRegistry } from "./game_host.js";
-import { decodeBmp, decodePng, fitRect, prepare } from "./image.js";
 import { normalize, query, summarize } from "./render_tree.js";
 
 const { version } = createRequire(import.meta.url)("../package.json");
@@ -75,7 +74,7 @@ function instructions(url) {
     "- ml_regl_step pauses the game, runs the frames, and returns once they have run (frame, time_ms). The first step or set_time puts the game on a controlled clock that continues from its current time and stays on after resume.",
     "- ml_regl_send_keys presses keys one after another (key_down, key_up, then framesAfter frames) on the paused game: one call for a whole move sequence. ml_regl_send_input sends single events, including key_press (down then up).",
     "- Input coordinates are in the game's virtual resolution, not window pixels. Input sent while paused shows up in the view after the next stepped frame.",
-    "- ml_regl_screenshot returns a compressed image (JPEG by default). Pass virtualSize (the game's virtual width and height) once to crop the desktop window's letterbox and get one pixel per virtual unit, and region to capture part of the view. A fully transparent browser screenshot means the page loads an old ml-regl-js bundle, which needs rebuilding.",
+    "- ml_regl_screenshot returns the game's view (without the desktop letterbox) as a compressed image, JPEG by default, one pixel per virtual unit up to maxWidth; region captures part of it in virtual units. A fully transparent browser screenshot means the page loads an old ml-regl-js bundle, which needs rebuilding.",
     "- ml_regl_quit exits a desktop game. A browser game stops its loop but stays listed, and stops answering, until its tab closes.",
   );
   return lines.join("\n");
@@ -232,67 +231,70 @@ server.registerTool("ml_regl_send_keys", {
   await hostFor(gameId).sendKeys(keys, { holdFrames, framesAfter, dtMs, timeoutMs }),
 ));
 
-const sizeSchema = z.object({
-  width: z.number().positive(),
-  height: z.number().positive(),
-});
-
 server.registerTool("ml_regl_screenshot", {
   title: "Capture game screenshot",
-  description: "Capture the current frame as a compressed image (JPEG by default). With virtualSize, the desktop window's letterbox is cropped, the image has one pixel per virtual unit (capped by maxWidth), and region selects part of the view in virtual units.",
+  description: "Capture the game's view (the virtual area, without the desktop letterbox) as a compressed image, one pixel per virtual unit up to maxWidth. region captures part of the view, in virtual units.",
   inputSchema: {
     gameId: gameIdSchema,
-    virtualSize: sizeSchema.optional().describe("The game's virtual width and height; remembered for later calls"),
     region: z.object({
       x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive(),
-    }).optional().describe("Part of the view to capture, in virtual units; needs virtualSize"),
+    }).optional().describe("Part of the view to capture, in virtual units"),
     format: z.enum(["jpeg", "png"]).optional().default("jpeg"),
     quality: z.number().int().min(1).max(100).optional().default(70).describe("JPEG quality"),
     maxWidth: z.number().int().min(16).max(8192).optional().default(1280),
-    path: z.string().optional().describe("Desktop only: also keep the raw BMP capture at this path"),
+    path: z.string().optional().describe("Desktop only: also keep the image file at this path"),
   },
   annotations: { readOnlyHint: true, openWorldHint: false },
-}, async ({ gameId, virtualSize, region, format, quality, maxWidth, path: keepPath }) => {
+}, async ({ gameId, region, format, quality, maxWidth, path: keepPath }) => {
   const host = hostFor(gameId);
-  if (virtualSize) host.virtualSize = virtualSize;
-  const size = host.virtualSize;
   const capturePath = keepPath
     ? path.resolve(keepPath)
-    : path.join(os.tmpdir(), `ml-regl-mcp-${randomUUID()}.bmp`);
-  const result = await host.sendCommand("screenshot", { path: capturePath });
-  let img;
-  let view = null;
+    : path.join(os.tmpdir(), `ml-regl-mcp-${randomUUID()}.${format === "png" ? "png" : "jpg"}`);
+  if (!host.capabilities.includes("screenshot_view")) {
+    // A host from before screenshot_view: the raw capture, unprocessed.
+    const result = await host.sendCommand("screenshot", { path: capturePath });
+    const match = typeof result?.data_url === "string" && result.data_url.match(/^data:([^;]+);base64,(.+)$/);
+    const note = "this host predates screenshot_view, so the capture is not cropped, scaled or compressed; update ml-regl";
+    if (match) {
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ format: match[1], note }, null, 2) },
+          { type: "image", mimeType: match[1], data: match[2] },
+        ],
+      };
+    }
+    return jsonResult({ ...result, note });
+  }
+  const params = { area: "view", scale: "virtual", max_width: maxWidth, format, quality, path: capturePath };
+  if (region) params.region = region;
+  const result = await host.sendCommand("screenshot", params);
+  let data;
   if (typeof result?.data_url === "string") {
-    const match = result.data_url.match(/^data:image\/png;base64,(.+)$/);
-    if (!match) throw new Error("the browser host returned an unexpected screenshot format");
-    img = decodePng(Buffer.from(match[1], "base64"));
-    // The browser canvas is the virtual area.
-    if (size) view = { x: 0, y: 0, width: img.width, height: img.height };
+    data = result.data_url.slice(result.data_url.indexOf(",") + 1);
   } else if (typeof result?.path === "string") {
     try {
-      img = decodeBmp(await fs.readFile(result.path));
+      data = (await fs.readFile(result.path)).toString("base64");
     } finally {
       if (!keepPath) await fs.rm(result.path, { force: true });
     }
-    if (size) view = fitRect(img.width, img.height, size.width, size.height);
   } else {
     return jsonResult(result);
   }
-  const out = prepare(img, { view, virtualSize: size, region, maxWidth, format, quality });
+  const mimeType = result.format === "png" ? "image/png" : "image/jpeg";
   const info = {
-    format: out.mimeType,
-    width: out.width,
-    height: out.height,
-    bytes: out.data.length,
-    pixelsPerUnit: out.pixelsPerUnit,
-    capture: { width: img.width, height: img.height, view },
+    format: mimeType,
+    width: result.width,
+    height: result.height,
+    bytes: Math.floor((data.length * 3) / 4),
+    pixelsPerUnit: result.pixels_per_unit,
+    view: result.view,
+    virtual: result.virtual,
   };
-  if (!size) info.note = "pass virtualSize to crop the letterbox and map pixels to virtual units";
   if (keepPath && typeof result.path === "string") info.savedPath = result.path;
   return {
     content: [
       { type: "text", text: JSON.stringify(info, null, 2) },
-      { type: "image", mimeType: out.mimeType, data: out.data.toString("base64") },
+      { type: "image", mimeType, data },
     ],
   };
 });

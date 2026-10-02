@@ -20,8 +20,6 @@ export class GameHost {
     // Whether this server has put the game on the controlled clock (by
     // set_time or the first step).
     this.clockControlled = false;
-    // The game's virtual size, as last given to ml_regl_screenshot.
-    this.virtualSize = null;
     this.commandCounter = 0;
     this.closed = false;
     this._onClose = onClose;
@@ -109,8 +107,9 @@ export class GameHost {
     return true;
   }
 
-  // The protocol starts the controlled clock at 0 on the first step. Carry
-  // the game's current time over instead, so game time never jumps back.
+  // Hosts before ml-regl 63c3919 start the controlled clock at 0 on the first
+  // step. Carry the game's current time over for them; on newer hosts this
+  // sets the time the step would continue from anyway.
   async ensureContinuousClock(state) {
     if (this.clockControlled) return;
     const now = (state ?? await this.sendCommand("get_state"))?.time_ms;

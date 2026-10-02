@@ -46,7 +46,7 @@ test("MCP tools drive the native ml-regl smoke game", { timeout: 30000 }, async 
   const portPromise = waitForPort(transport.stderr);
   const client = new Client({ name: "ml-regl-mcp-e2e-test", version: "0.1.0" });
   let game;
-  const screenshot = path.join(os.tmpdir(), "ml-regl-mcp-e2e.bmp");
+  const screenshot = path.join(os.tmpdir(), "ml-regl-mcp-e2e.jpg");
   await client.connect(transport);
   const port = await portPromise;
   try {

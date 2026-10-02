@@ -1,6 +1,6 @@
 {
   "name": "ml-regl-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for inspecting and controlling running ml-regl games",
   "keywords": [
     "mcp",
@@ -37,8 +37,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "jpeg-js": "^0.4.4",
-    "pngjs": "^7.0.0",
     "ws": "^8.18.0",
     "zod": "^3.25.0"
   }
