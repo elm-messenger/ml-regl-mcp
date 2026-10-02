@@ -27,17 +27,15 @@ dune installs the sources, so read them, e.g.
 
 ## Setup
 
-The ml-regl and ml-messenger packages are opam-pinned to local checkouts and
-installed with each repository's `install.sh` (ml-regl first). An application
-depends on `ml-messenger`, which brings `Messenger`, `Messenger_extra`, and
-`Ml_regl_core` into scope, plus exactly one backend:
+An application depends on the `ml-messenger` package, which brings
+`Messenger`, `Messenger_extra`, and `Ml_regl_core` into scope, plus exactly
+one backend:
 
 ```dune
 (libraries ml-messenger regl_desktop)   ; or regl_js with (modes js)
 ```
 
-A starting project (`messenger-template`, next to ml-messenger) has this
-layout; follow it for new apps:
+Lay out a new app like this:
 
 ```
 dune-project
@@ -143,11 +141,21 @@ returned env loses its changes.
 - **Text needs a loaded font.** `textbox` takes a font resource name; without
   a `Font_res` (an MSDF atlas PNG plus its BMFont-style JSON) nothing is
   drawn. Resource paths are relative to the working directory on desktop (run
-  the app from the project root) and to the page in the browser. The
-  ml-messenger repository ships a font to copy:
-  `test/messenger_test/assets/fonts/FiraCode-Regular.json` and `font_0.png`
-  (Fira Code, SIL Open Font License); other fonts can be made with an MSDF
-  generator that writes BMFont JSON, such as `msdf-bmfont-xml` (`-f json`).
+  the app from the project root) and to the page in the browser. Make the
+  atlas from a downloaded TTF or OTF whose license allows embedding (Google
+  Fonts' OFL fonts do):
+
+  ```sh
+  mkdir -p assets
+  curl -L -o FiraSans-Regular.ttf https://github.com/google/fonts/raw/main/ofl/firasans/FiraSans-Regular.ttf
+  npx -y msdf-bmfont-xml -f json --smart-size --pot -d 2 -o assets/font FiraSans-Regular.ttf
+  mv assets/FiraSans-Regular.json assets/font.json   # the JSON is named after the face
+  ```
+
+  `--smart-size --pot -d 2` gives a compact power-of-two atlas with metrics
+  kept to two decimals. For other needs (more characters, glyph size), see
+  `npx -y msdf-bmfont-xml --help`; the rendering skill's Text section
+  describes the useful options.
 - **Assets load asynchronously.** Until a texture or font has loaded, drawing
   it shows nothing. `Messenger_extra.Asset_loading.gen_gc ()` covers the
   screen until everything has loaded; a failed load keeps it up (on purpose:
@@ -218,6 +226,8 @@ call says no game is connected, another server (for example a manually added
 
 - `references/api.md`: signatures and the list of scene output messages.
 - `references/examples.md`: complete compiling examples.
-- In the ml-messenger repository: `test/messenger_test` (interaction,
-  nested components, portable components, camera, audio, transitions,
-  sprite sheets) and `AGENTS.md`.
+- The ml-messenger repository on GitHub: its example app,
+  [`test/messenger_test`](https://github.com/elm-messenger/ml-messenger/tree/main/test/messenger_test)
+  (interaction, nested components, portable components, camera, audio,
+  transitions, sprite sheets), and
+  [`AGENTS.md`](https://github.com/elm-messenger/ml-messenger/blob/main/AGENTS.md).

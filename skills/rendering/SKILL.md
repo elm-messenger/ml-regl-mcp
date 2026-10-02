@@ -78,10 +78,26 @@ complete standalone app that was compiled and checked on screen.
 Text needs a font loaded under a name: an MSDF atlas image plus its
 BMFont-style JSON (`Regl_proto.load_font name png json`, or ml-messenger's
 `Font_res`). Until the host reports it loaded, text draws nothing.
-ml-messenger ships one font you can copy into a project:
-`test/messenger_test/assets/fonts/FiraCode-Regular.json` and `font_0.png`
-(Fira Code, SIL Open Font License). To make another, use an MSDF generator
-with BMFont JSON output, such as `msdf-bmfont-xml` (`-f json`).
+Make the atlas from a TTF or OTF file: download a font whose license allows
+embedding it (Google Fonts' OFL fonts do), then generate it with
+`msdf-bmfont-xml`:
+
+```sh
+mkdir -p assets
+curl -L -o FiraSans-Regular.ttf https://github.com/google/fonts/raw/main/ofl/firasans/FiraSans-Regular.ttf
+npx -y msdf-bmfont-xml -f json --smart-size --pot -d 2 -o assets/font FiraSans-Regular.ttf
+mv assets/FiraSans-Regular.json assets/font.json
+```
+
+`--smart-size` shrinks the atlas to fit the glyphs, `--pot` keeps its sides
+powers of two, and `-d 2` keeps two decimals in the glyph metrics (the
+default rounds them to whole pixels). `-o` names the atlas
+(`assets/font.png`), but the JSON is always named after the font's face, so
+rename it. Keep the default field type, `msdf`. When the result needs
+something else, run `npx -y msdf-bmfont-xml --help` and explore the other
+options, for example `-i chars.txt` for characters beyond printable ASCII,
+`-s` for the glyph size, `-r` for the distance range, and `-m` for the
+largest atlas size.
 
 - `textbox pos size text font color`: `pos` is the top-left of the text,
   `size` the font size in virtual units; `\n` breaks lines.
@@ -206,9 +222,12 @@ linking `regl_desktop` or `regl_js`:
 The project needs a `dune-project` of its own, and dune builds the
 executable for each backend (`references/examples.md`). On desktop, run it
 from the directory the asset paths are relative to. In the browser, the page
-loads the ml-regl-js host bundle (`build/regl.js`, built by `make build` in
-the ml-regl checkout's `ml-regl-js` directory) and the app's `.bc.js`, both
-served over HTTP, and starts the app (paths are from the served root):
+loads the ml-regl-js host bundle and the app's `.bc.js`, both served over
+HTTP, and starts the app (paths are from the served root). The bundle,
+`build/regl.js`, comes from
+[ml-regl-js](https://github.com/elm-messenger/ml-regl-js) (`pnpm i`, then
+`make build`), at the commit ml-regl's `ml-regl-js` submodule pins, so that it
+matches the installed `regl_js`:
 
 ```html
 <script src="/ml-regl-js/build/regl.js"></script>
@@ -222,7 +241,8 @@ served over HTTP, and starts the app (paths are from the served root):
 </script>
 ```
 
-The ml-regl checkout's `html/` directory has more pages like this.
+ml-regl's [`html/`](https://github.com/elm-messenger/ml-regl/tree/main/html)
+directory has more pages like this.
 
 ## When nothing shows up
 
@@ -253,5 +273,6 @@ stopgap, pass `{ attributes: { antialias: false, depth: false,
 premultipliedAlpha: true, preserveDrawingBuffer: true } }` as `MlREGL.init`'s
 third argument, which replaces all the default attributes).
 `ml_regl_quit` when done. The window is real: launch only when you need to
-look. ml-regl's `test/check_texture_parity.py` captures the same app on both
-hosts without MCP, which is handy for comparing them.
+look. To compare both hosts on the same app without MCP, ml-regl's
+[`test/check_texture_parity.py`](https://github.com/elm-messenger/ml-regl/blob/main/test/check_texture_parity.py)
+shows how to capture the desktop window and the browser page.

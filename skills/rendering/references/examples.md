@@ -8,10 +8,24 @@ sheet at load time, MSDF text, a custom draw program in virtual coordinates
 effect, a shape without an angle parameter turned through a camera, a
 built-in compositor, and a custom effect and compositor.
 
-The assets are a font atlas (`assets/font.png`, `assets/font.json`) and a
-32×32-cell sprite sheet (`assets/sheet.png`), copied from ml-messenger's
-`test/messenger_test/assets/fonts/` (`font_0.png`, `FiraCode-Regular.json`)
-and `img/sheet.png`; run it from the directory that contains `assets/`.
+The assets are generated: a font atlas (`assets/font.png`, `assets/font.json`)
+made from Fira Sans as in SKILL.md's Text section, and a sprite sheet of four
+32×32 cells (`assets/sheet.png`) drawn with ImageMagick (use `convert` in
+place of `magick` on ImageMagick 6). Run the app from the directory that
+contains `assets/`:
+
+```sh
+mkdir -p assets
+curl -L -o FiraSans-Regular.ttf https://github.com/google/fonts/raw/main/ofl/firasans/FiraSans-Regular.ttf
+npx -y msdf-bmfont-xml -f json --smart-size --pot -d 2 -o assets/font FiraSans-Regular.ttf
+mv assets/FiraSans-Regular.json assets/font.json
+magick -size 128x32 xc:none \
+  -fill '#d33' -draw 'circle 16,16 16,4' \
+  -fill '#3a3' -draw 'rectangle 36,4 59,27' \
+  -fill '#36d' -draw 'polygon 80,4 92,28 68,28' \
+  -fill '#fa0' -draw 'roundrectangle 100,4 123,27 6,6' \
+  assets/sheet.png
+```
 
 ## `dune-project`
 

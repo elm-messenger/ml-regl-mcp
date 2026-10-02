@@ -101,6 +101,13 @@ on GitHub `main`, so push before telling anyone to update.
   update them when those APIs change. Copy code into `examples.md` only from
   a project that compiled against the installed libraries (and, for
   rendering, was looked at through this server), not from memory.
+- The skills run in users' own projects. They assume the OCaml packages are
+  already installed, so they carry no install steps. They never refer to local
+  checkouts or sibling paths (`../ml-messenger`, `messenger-template`): they
+  read installed sources through `ocamlfind query` and link to GitHub for
+  anything else. Projects make their own assets. A font atlas is generated
+  from a downloaded TTF with `msdf-bmfont-xml`, and images are drawn, for
+  example with ImageMagick. Do not point at ml-messenger's test assets.
 - The plugin version is `plugin.json`'s `version`; bump it with the package
   version so `claude plugin update` picks up changes.
 - npm's `files` stays `["src"]`: the plugin files are not part of the npm
