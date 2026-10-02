@@ -76,9 +76,16 @@ next publish.
 The repository is also the Claude Code plugin `ml-regl` and a marketplace
 holding only that plugin (`marketplace.json` has `"source": "./"`). Users
 install it from GitHub (`claude plugin marketplace add
-elm-messenger/ml-regl-mcp`, then `claude plugin install ml-regl@ml-regl`), not
-from npm. An installed plugin is whatever is on GitHub `main`, so push before
-telling anyone to update.
+elm-messenger/ml-regl-mcp`, then `claude plugin install ml-regl@ml-regl --scope
+local` in each game project), not from npm. An installed plugin is whatever is
+on GitHub `main`, so push before telling anyone to update.
+
+- The README recommends local scope on purpose. The default `user` scope
+  enables the plugin, and so starts a server on port 8765, in every Claude
+  Code session in every project, and the first session to start keeps the port.
+  Local scope writes `enabledPlugins` to the project's
+  `.claude/settings.local.json` and leaves user settings alone (checked with
+  Claude Code 2.1.287).
 
 - `plugin.json` declares the MCP server inline. It runs
   `${CLAUDE_PLUGIN_ROOT}/bin/plugin-server`, which installs the production

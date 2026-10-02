@@ -45,16 +45,40 @@ server with two skills:
   cameras, text, textures, effects, custom GLSL programs).
 
 Claude loads a skill on its own when the task matches; the slash commands
-load one explicitly. The GitHub repository is its own one-plugin marketplace:
+load one explicitly. The GitHub repository is its own one-plugin marketplace.
+Add it once, then install the plugin with **local scope** from each game
+project:
 
 ```bash
 claude plugin marketplace add elm-messenger/ml-regl-mcp
-claude plugin install ml-regl@ml-regl
+cd /path/to/your-game
+claude plugin install ml-regl@ml-regl --scope local
 ```
 
-(or `/plugin marketplace add elm-messenger/ml-regl-mcp` and
-`/plugin install ml-regl@ml-regl` inside Claude Code). Restart Claude Code
-afterwards. To pick up new commits from GitHub:
+Run the last two commands again in every other game project. Inside Claude
+Code, `/plugin marketplace add elm-messenger/ml-regl-mcp` and `/plugin install
+ml-regl@ml-regl` do the same; choose local scope. Restart Claude Code
+afterwards.
+
+Local scope enables the plugin only in that project and only for you; it is
+recorded in the project's `.claude/settings.local.json`, which is not meant to
+be committed. Avoid the default `user` scope: it enables the plugin in every
+Claude Code session, so every session, related or not, starts its own server
+on port 8765. Whichever session starts first keeps the port, and your game
+can end up connected to an unrelated session. To share the plugin with
+everyone working on a project, use `--scope project`, which goes into the
+committed `.claude/settings.json`.
+
+If you already installed it with user scope, turn it off globally and enable
+it per project:
+
+```bash
+claude plugin disable ml-regl@ml-regl --scope user
+cd /path/to/your-game
+claude plugin enable ml-regl@ml-regl --scope local
+```
+
+To pick up new commits from GitHub (from any directory):
 
 ```bash
 claude plugin marketplace update ml-regl
