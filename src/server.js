@@ -66,7 +66,7 @@ function instructions(url) {
     "- Prefer ml_regl_get_state (published state, recent logs, frame, clock). ml_regl_get_render_tree can be very large; use it when you need what is drawn on screen.",
     "- ml_regl_step returns once frames are queued; poll ml_regl_get_state until frame has advanced before reading results. step and set_time switch the game to a deterministic clock that stays on after resume.",
     "- Input coordinates are in the game's virtual resolution, not window pixels. Input sent while paused shows up in the view after the next stepped frame.",
-    "- Desktop screenshots are BMP files written by the game; the result gives the path. Browser screenshots are returned as images, but are blank unless the page enables preserveDrawingBuffer.",
+    "- Desktop screenshots are BMP files written by the game; the result gives the path. Browser screenshots are returned as images; a fully transparent one means the page loads an old ml-regl-js bundle, which needs rebuilding.",
     "- ml_regl_quit exits a desktop game. A browser game stops its loop but stays listed, and stops answering, until its tab closes.",
   );
   return lines.join("\n");

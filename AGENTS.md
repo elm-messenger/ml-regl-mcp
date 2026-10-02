@@ -160,7 +160,7 @@ test was adjusted for the browser render-tree shape described below).
 | Deterministic clock (`set_time 1000` + 3 steps × 10 ms gives `time_ms` 1030) | ✅ | ✅ |
 | Input injection (keys, mouse move/down/up) reaches ml-messenger scenes | ✅ | ✅ |
 | Render tree JSON (textbox strings readable) | ✅ | ✅ (different shape) |
-| Screenshot | ✅ BMP file | ⚠️ returns a blank image (see below) |
+| Screenshot | ✅ BMP file | ✅ PNG image (verified 2026-10-02; old ml-regl-js bundles are blank, see below) |
 | Quit | ✅ process exits 0 | ⚠️ loop stops; host becomes a zombie |
 | Game started before the server connects when the server comes up | ✅ (ixwebsocket retries) | n/a |
 | Game reconnects after the MCP server restarts | ✅ (gets a new `game-N` id) | ❌ (by code reading; see below) |
@@ -239,13 +239,16 @@ repo):
   file itself. Without `path`, the file is `mcp_frame_<frame>.bmp` in the
   **game's** working directory. Delete it afterwards. An unwritable path gives
   "screenshot failed". Capture while paused works.
-- **Browser screenshots are blank by default.** ml-regl-js creates its WebGL
-  context without `preserveDrawingBuffer` and calls `toDataURL` before drawing
-  the frame, so the PNG is fully transparent. It works when the page passes
-  `MlREGL.init(canvas, MlApp, { attributes: { antialias: false, depth: false,
-  premultipliedAlpha: true, preserveDrawingBuffer: true } })`. The override
-  replaces the whole `attributes` object, so keep the defaults. Fix this in
-  ml-regl-js, not here.
+- **Browser screenshots are taken right after a frame is drawn.** The WebGL
+  context has no `preserveDrawingBuffer`, so the browser clears the canvas
+  once a frame is shown. ml-regl-js therefore queues `screenshot` and answers
+  it after drawing, in the same task. While paused it redraws the last render
+  tree without updating the model, so `frame` does not change. Screenshots
+  requested in the same frame get the same image. Older ml-regl-js bundles
+  read the canvas before drawing and return a fully transparent PNG: rebuild
+  the bundle, or pass `MlREGL.init(canvas, MlApp, { attributes: { antialias:
+  false, depth: false, premultipliedAlpha: true, preserveDrawingBuffer: true }
+  })`. That object replaces the whole default `attributes`.
 - **Browser quit is not an exit.** It stops the loop and audio, but the socket
   stays open, so the host stays listed and every later command times out
   until the tab is closed or reloaded.

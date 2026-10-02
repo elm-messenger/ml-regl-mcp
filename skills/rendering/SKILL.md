@@ -246,11 +246,12 @@ game's working directory; view it, then delete it) or
 `REGLProgramCreateFail`; the desktop host prints the shader error to the
 game's output, not to the MCP logs. `ml_regl_get_state` returns only what
 the game reports itself: `Regl_debug.log` messages as `logs` and the last
-`Regl_debug.publish_state` value as `published`. In the browser,
-`ml_regl_screenshot` comes back blank unless the page keeps the drawing
-buffer: `MlREGL.init(canvas, MlApp, { attributes: { antialias: false,
-depth: false, premultipliedAlpha: true, preserveDrawingBuffer: true } })`
-(the object replaces all the default attributes).
+`Regl_debug.publish_state` value as `published`. In the browser, a fully
+transparent `ml_regl_screenshot` means the page loads an old ml-regl-js
+bundle that read the canvas before drawing; rebuild the bundle (or, as a
+stopgap, pass `{ attributes: { antialias: false, depth: false,
+premultipliedAlpha: true, preserveDrawingBuffer: true } }` as `MlREGL.init`'s
+third argument, which replaces all the default attributes).
 `ml_regl_quit` when done. The window is real: launch only when you need to
 look. ml-regl's `test/check_texture_parity.py` captures the same app on both
 hosts without MCP, which is handy for comparing them.

@@ -198,9 +198,8 @@ instructions name the WebSocket URL it listens on (default
    textbox text; trees of busy scenes are very large) or
    `ml_regl_screenshot` (desktop writes a BMP into the game's working
    directory and returns its path; view it, then delete it). A browser
-   screenshot is blank unless the page passes `{ attributes: { antialias:
-   false, depth: false, premultipliedAlpha: true, preserveDrawingBuffer: true
-   } }` as `MlREGL.init`'s third argument.
+   screenshot comes back as an image; a fully transparent one means the page
+   loads an old ml-regl-js bundle, so rebuild it.
 5. `ml_regl_quit` when done.
 
 `step` and `ml_regl_set_time` switch the game to a controlled clock until it
