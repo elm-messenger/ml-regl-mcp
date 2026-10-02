@@ -115,8 +115,22 @@ on GitHub `main`, so push before telling anyone to update.
   anything else. Projects make their own assets. A font atlas is generated
   from a downloaded TTF with `msdf-bmfont-xml`, and images are drawn, for
   example with ImageMagick. Do not point at ml-messenger's test assets.
-- The plugin version is `plugin.json`'s `version`; bump it with the package
-  version so `claude plugin update` picks up changes.
+- Codex installs the same plugin. It reads `.claude-plugin/marketplace.json`,
+  the portable manifest `plugin.json` at the root (Agent Plugins schema
+  1.0.0), the skills in `skills/`, and the server in the root `mcp.json`: a
+  stdio server running `sh ./bin/plugin-server` with `cwd` `${PLUGIN_ROOT}`.
+  Codex does not expand `${CLAUDE_PLUGIN_ROOT}` in a command, so the Claude
+  manifest's server fails to start there ("No such file or directory"); Claude
+  Code does not read `mcp.json` (only `.mcp.json`). Checked with Codex CLI
+  0.157.1.
+- Test the Codex side without a model call or your own config: with
+  `CODEX_HOME` pointing at a scratch directory, `codex plugin marketplace add
+  .` and `codex plugin add ml-regl@ml-regl`, then run `codex app-server` and
+  send `initialize` and `mcpServerStatus/list`: the result lists the server's
+  tools, or its startup error. `codex debug prompt-input` shows the skills.
+- The plugin version is in `.claude-plugin/plugin.json`, the root
+  `plugin.json` and `package.json`; bump all three together so `claude plugin
+  update` and Codex pick up changes.
 - npm's `files` stays `["src"]`: the plugin files are not part of the npm
   package.
 - Check with `claude plugin validate . --strict` (marketplace),

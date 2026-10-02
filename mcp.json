@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "ml-regl": {
+      "type": "stdio",
+      "command": "sh",
+      "args": ["./bin/plugin-server"],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": { "ML_REGL_MCP_PORT": "8765" }
+    }
+  }
+}

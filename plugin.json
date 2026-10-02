@@ -1,16 +1,10 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "ml-regl",
-  "displayName": "ml-regl",
   "version": "0.4.0",
   "description": "Skills for writing ml-messenger games and ml-regl rendering code, and an MCP server for inspecting and driving running ml-regl games.",
   "author": { "name": "Yiming Xiang" },
-  "license": "BSD-3-Clause",
   "repository": "https://github.com/elm-messenger/ml-regl-mcp",
-  "keywords": ["ocaml", "game", "ml-regl", "ml-messenger", "mcp"],
-  "mcpServers": {
-    "ml-regl": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/plugin-server",
-      "env": { "ML_REGL_MCP_PORT": "8765" }
-    }
-  }
+  "license": "BSD-3-Clause",
+  "keywords": ["ocaml", "game", "ml-regl", "ml-messenger", "mcp"]
 }

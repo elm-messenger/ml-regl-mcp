@@ -95,6 +95,42 @@ be on `PATH`. The plugin's server listens on port 8765, so remove a
 separately registered server (`claude mcp remove ml-regl`) or the two will
 compete for the port. Its tools appear as `mcp__plugin_ml-regl_ml-regl__*`.
 
+## Codex plugin
+
+The same repository is a Codex plugin with the same two skills and server.
+Codex reads the marketplace from `.claude-plugin/marketplace.json`, the
+plugin from the portable `plugin.json`, and the server from `mcp.json`, which
+starts `bin/plugin-server` from the installed plugin. Add the marketplace and
+install the plugin once:
+
+```bash
+codex plugin marketplace add elm-messenger/ml-regl-mcp
+codex plugin add ml-regl@ml-regl
+```
+
+Like Claude Code's user scope, this enables the plugin in every Codex session,
+and each one would start a server on port 8765. Disable it in
+`~/.codex/config.toml` and enable it in each game project's
+`.codex/config.toml` (Codex reads that file in projects you trust):
+
+```toml
+# ~/.codex/config.toml
+[plugins."ml-regl@ml-regl"]
+enabled = false
+
+# your-game/.codex/config.toml
+[plugins."ml-regl@ml-regl"]
+enabled = true
+```
+
+`codex plugin list` shows whether it is enabled where you are. To pick up new
+commits, run `codex plugin marketplace upgrade` and `codex plugin add
+ml-regl@ml-regl` again; adding it enables it globally again, so set `enabled =
+false` in `~/.codex/config.toml` once more. In
+Codex the skills are `ml-regl:messenger` and `ml-regl:rendering`, and the
+tools keep their `ml_regl_*` names. A Claude Code session and a Codex session
+with the plugin both want port 8765; only the first one gets it.
+
 ## Connect a game
 
 The game host connects outbound to the listener:

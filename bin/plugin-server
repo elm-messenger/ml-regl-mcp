@@ -5,7 +5,7 @@
 # installed (a pulled checkout with new dependencies). stdout is the MCP
 # stream: everything else goes to stderr.
 set -e
-root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+root="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}}"
 installed="$root/node_modules/.package-lock.json"
 if [ ! -f "$installed" ] || [ "$root/package-lock.json" -nt "$installed" ]; then
     echo "ml-regl-mcp: installing dependencies in $root" >&2
