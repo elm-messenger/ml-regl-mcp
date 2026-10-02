@@ -1,10 +1,13 @@
 #!/bin/sh
 # Starts the MCP server for the Claude Code plugin. A plugin install is a copy
 # of this repository without node_modules, so install the dependencies on
-# first start. stdout is the MCP stream: everything else goes to stderr.
+# first start, and again whenever the lockfile is newer than what npm last
+# installed (a pulled checkout with new dependencies). stdout is the MCP
+# stream: everything else goes to stderr.
 set -e
 root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-if [ ! -d "$root/node_modules" ]; then
+installed="$root/node_modules/.package-lock.json"
+if [ ! -f "$installed" ] || [ "$root/package-lock.json" -nt "$installed" ]; then
     echo "ml-regl-mcp: installing dependencies in $root" >&2
     npm ci --omit=dev --no-audit --no-fund --prefix "$root" >&2
 fi

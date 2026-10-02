@@ -108,9 +108,12 @@ DECLGL_CONTROL_URL=ws://127.0.0.1:8765 \
 Browser builds connect when the page URL ends in
 `#mcp=ws://127.0.0.1:8765`.
 
-The server provides tools for listing games, querying state/render trees,
-pausing/resuming, deterministic stepping, input injection, screenshots, and
-quitting. The WebSocket protocol is documented in the main ml-regl repository
+The server provides tools for listing games, reading state, summarizing and
+querying what is drawn (render-tree summaries and node queries; the full tree
+never goes to the agent), pausing/resuming, deterministic stepping that waits
+for its frames, input injection and key sequences, compressed and cropped
+screenshots, and quitting. The first step continues the game's clock from its
+current time. The WebSocket protocol is documented in the main ml-regl repository
 at `docs/ControlProtocol.md`.
 
 ## Development

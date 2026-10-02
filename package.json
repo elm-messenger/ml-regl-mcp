@@ -1,6 +1,6 @@
 {
   "name": "ml-regl-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for inspecting and controlling running ml-regl games",
   "keywords": [
     "mcp",
@@ -33,10 +33,12 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "prepublishOnly": "node --test test/mcp_stdio.test.js"
+    "prepublishOnly": "node --test test/mcp_stdio.test.js test/fake_host.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
     "ws": "^8.18.0",
     "zod": "^3.25.0"
   }

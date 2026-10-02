@@ -30,6 +30,9 @@ test("stdio MCP server advertises ml-regl tools and resources", async () => {
     assert.ok(names.includes("ml_regl_list_games"));
     assert.ok(names.includes("ml_regl_step"));
     assert.ok(names.includes("ml_regl_screenshot"));
+    assert.ok(names.includes("ml_regl_get_render_tree"));
+    assert.ok(names.includes("ml_regl_query_render_tree"));
+    assert.ok(names.includes("ml_regl_send_keys"));
     const resources = await client.listResources();
     assert.ok(resources.resources.some((resource) => resource.uri === "ml-regl://games"));
   } finally {

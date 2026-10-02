@@ -34,8 +34,17 @@ protocol extensions.
   before the `McpServer` is created so the instructions can name the real
   bound URL (`ML_REGL_MCP_HOST`/`ML_REGL_MCP_PORT`, including port `0`).
 - `src/game_host.js`: `GameHost` (one connected game: hello handshake, request
-  and response correlation by id, 5 s timeouts, cached events) and
+  and response correlation by id, 5 s timeouts, cached events, waiting for
+  frames, carrying the clock over on the first step, key sequences) and
   `GameRegistry` (`game-N` ids, resolving a host when `gameId` is omitted).
+- `src/render_tree.js`: normalizes both hosts' render-tree JSON into one shape
+  and builds the bounded views agents get: the summary and node queries.
+- `src/image.js`: screenshot processing: BMP and PNG decoding, letterbox and
+  region cropping, box-filter downscaling, JPEG/PNG encoding.
+- `test/fake_host.test.js`: a scripted host behind the real server: waiting
+  steps, the clock carried over, key sequences, render-tree summary and
+  queries for both host shapes, and screenshot cropping and encoding. It needs
+  no game.
 - `test/mcp_stdio.test.js`: checks that the stdio server lists its tools and
   resource. It needs no game.
 - `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
@@ -46,7 +55,10 @@ protocol extensions.
   prebuilt native ml-regl, opens a real SDL window, and is not skipped when
   the binary is missing.
 
-Dependencies: `@modelcontextprotocol/sdk` ^1.30, `ws` ^8, `zod` ^3. The package
+Dependencies: `@modelcontextprotocol/sdk` ^1.30, `ws` ^8, `zod` ^3, and for
+screenshots `pngjs` ^7 (MIT) and `jpeg-js` ^0.4 (BSD-3-Clause), both pure
+JavaScript; they can go once the hosts crop and encode screenshots themselves.
+The package
 is ESM (`"type": "module"`), and `engines` follows the SDK (`node >=18`). Only
 Node 24 has been tested.
 
@@ -65,9 +77,9 @@ next publish.
   with `npm pack --dry-run` after adding files.
 - `serverInfo.version` is read from `package.json`. Bump the version with
   `npm version <patch|minor|major>`, never by editing source.
-- `prepublishOnly` runs only `test/mcp_stdio.test.js`, because the native e2e
-  test needs sibling build outputs. Run the full `npm test` yourself before a
-  release.
+- `prepublishOnly` runs `test/mcp_stdio.test.js` and `test/fake_host.test.js`,
+  which need no game; the native e2e test needs sibling build outputs. Run the
+  full `npm test` yourself before a release.
 - Publishing is the maintainer's action (`npm login`, then `npm publish`). Do
   not publish from an agent session unless explicitly asked.
 
@@ -141,12 +153,14 @@ npm test                     # node --test (both tests above)
 | --- | --- | --- |
 | `ml_regl_list_games` | (local) | id, runtime, protocol, capabilities, connectedAt/lastSeenAt, latestFrame, hasState, logCount |
 | `ml_regl_get_state` | `get_state` | `{paused, frame, time_ms, logs[], published?}` |
-| `ml_regl_get_render_tree` | `get_render_tree` | `{available, tree}`; the tree is the last rendered frame |
+| `ml_regl_get_render_tree` | `get_render_tree` | summary of the last rendered frame: `{available, frame, nodes, depth, programs, effects, texts[], outline[]}`; never the full tree |
+| `ml_regl_query_render_tree` | `get_render_tree` | `path`, `program`, `text`, `depth`, `limit`, `fullArrays`; returns `{matches[], total, truncated}` with fields |
 | `ml_regl_pause` / `ml_regl_resume` | `pause` / `resume` | `{paused}` |
-| `ml_regl_step` | `step` | `frames` 1..100000 (default 1), optional `dtMs` ≥ 0 sent as `dt_ms`; returns `{queued}` |
+| `ml_regl_step` | `pause`, `get_state`, `set_time` (first time only), `step` | `frames` 1..100000 (default 1), optional `dtMs` ≥ 0 sent as `dt_ms`, `wait` (default true), `timeoutMs`; returns `{done, frame, time_ms, paused}` once the frames ran |
 | `ml_regl_set_time` | `set_time` | `milliseconds` ≥ 0 sent as `ms` |
-| `ml_regl_send_input` | `input` | `kind` ∈ key_down, key_up, mouse_down, mouse_up, mouse_move; `code`, `button` 1..5, `x`, `y` |
-| `ml_regl_screenshot` | `screenshot` | desktop: `{path}` to a BMP; browser: MCP `image` content (PNG) |
+| `ml_regl_send_input` | `input` | `kind` ∈ key_down, key_up, key_press (down then up), mouse_down, mouse_up, mouse_move; `code`, `button` 1..5, `x`, `y` |
+| `ml_regl_send_keys` | `pause`, `input`, `step` | `keys[]`, `holdFrames` (default 0), `framesAfter` (default 1), `dtMs`, `timeoutMs`; returns `{pressed, done, frame, time_ms}` |
+| `ml_regl_screenshot` | `screenshot` | `virtualSize` (remembered per game), `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the BMP); returns info text plus MCP `image` content |
 | `ml_regl_quit` | `quit` | `{quit: true}` |
 | resource `ml-regl://games` | (local) | same JSON as `ml_regl_list_games` |
 
@@ -194,25 +208,23 @@ Gaps in this server:
   `log` events (with levels), and `frame` events per host, but no tool returns
   that cache. `get_state` always asks the game. There are no MCP notifications,
   resource subscriptions, or `listChanged` for `ml-regl://games`.
-- **No wait-for-condition tool.** `step` returns as soon as the frames are
-  *queued* (`queued` is the total outstanding budget). Callers must poll
-  `get_state.frame` until it reaches `before + N` before reading the tree or
-  taking a screenshot.
+- **Waiting covers stepped frames only.** `ml_regl_step` and `ml_regl_send_keys`
+  return once their frames have run (they watch the hosts' `frame` events and
+  poll `get_state`); there is no wait for an arbitrary condition.
 - **No game lifecycle management.** The server cannot launch, restart, or
   reload a game, change scenes directly, resize windows, or inspect audio.
-- **Limited input vocabulary.** There is no wheel, touch, gamepad, text, or
-  key-combo/typing helper. A click is three calls (move, down, up). A
+- **Limited input vocabulary.** There is no wheel, touch, gamepad, or text
+  input, and no modifier combinations. Keys have `key_press` and
+  `ml_regl_send_keys`; a click is still three calls (move, down, up). A
   `key_down` without `code` is accepted and delivers an empty key code.
 - **Fixed limits.** The command timeout is 5 s and cannot be configured. A
   host that never sends `hello` with `protocol` blocks commands for up to 5 s
   and then fails with "not ready". The protocol version is not checked (any
   non-null value counts as ready), and advertised `capabilities` are not
   enforced.
-- **1 MiB WebSocket `maxPayload`.** A host message larger than 1 MiB (compact
-  JSON) closes that host's socket with code 1009 and fails the call with "Max
-  payload size exceeded". ml-messenger's Stress scene fits, but its tree
-  arrives as roughly 1.3–1.4 M characters of pretty-printed JSON, which is
-  very large for an agent's context. Large trees can be a liability.
+- **64 MiB WebSocket `maxPayload`.** A larger host message closes that host's
+  socket with code 1009. Render trees only travel from the host to the server;
+  agents get the summary or query results, which are bounded.
 - **A port collision does not stop the server.** A second server on the same
   port (for example, two MCP clients) logs `EADDRINUSE` on stderr and keeps
   serving MCP with no listener, so every call says "no game host is
@@ -224,7 +236,11 @@ Gaps in this server:
 - **Ids are not stable.** `game-N` comes from a per-process counter, and a
   reconnect gets a new id.
 - `ml_regl_screenshot` is annotated `readOnlyHint` even though desktop hosts
-  write a file.
+  write a temporary BMP (the server deletes it unless `path` was given).
+- **Screenshot cropping needs `virtualSize`.** The hosts do not report where
+  the virtual area lies, so the server computes the desktop letterbox from
+  the window size and the `virtualSize` the agent passes; without it the
+  image is the whole window.
 
 Host behaviors to know when driving games (these come from ml-regl, not this
 repo):
@@ -235,24 +251,25 @@ repo):
 - **Input while paused is applied immediately** to the OCaml model, but the
   render tree and screenshot only change after a frame runs (`step 1`).
 - **`step` and `set_time` switch the clock to controlled mode for good.** The
-  first `step` without `set_time` resets game time to 0. After `resume`, time
-  keeps advancing by `dt_ms` per frame, not by wall clock. Restarting the game
-  is the only way back to wall-clock time.
+  protocol starts it at 0 on a first `step` without `set_time`; this server
+  sets it to the game's current `time_ms` first, so MCP clients see time
+  continue. After `resume`, time keeps advancing by `dt_ms` per frame, not by
+  wall clock. Restarting the game is the only way back to wall-clock time.
 - **The render tree JSON differs by runtime.** Desktop uses
   `fields[].value.numbers` / `value.number` and omits empty fields. Browser
   uses `fields[].val.numberArrayValue.values` / `val.numberValue` and includes
-  `effects: []` and `camera: null`. Match text by walking string leaves rather
-  than relying on one fixed path.
+  `effects: []` and `camera: null`. `src/render_tree.js` normalizes both, so
+  the summary and query results are the same on both hosts.
 - **`get_state` details.** Desktop omits `published` when nothing was
   published and reports wall-clock `time_ms`. Browser returns
-  `published: null` and `time_ms: null` until the clock is controlled.
+  `published: null`, and `time_ms` is the loop time until the clock is
+  controlled (`null` from ml-regl-js before `d8860ce`).
   `logs` are plain strings with no levels.
 - **Desktop screenshot.** The game process writes a BMP of the *window back
   buffer* (window pixels including letterbox bars; 1419×1670, about 9.5 MB, in
-  testing). The result is only `{path}`, so the client must read or convert the
-  file itself. Without `path`, the file is `mcp_frame_<frame>.bmp` in the
-  **game's** working directory. Delete it afterwards. An unwritable path gives
-  "screenshot failed". Capture while paused works.
+  testing). The server asks for it in a temporary file, crops and encodes it
+  (a 1280×720 JPEG was about 70 KB), and deletes the file. An unwritable path
+  gives "screenshot failed". Capture while paused works.
 - **Browser screenshots are taken right after a frame is drawn.** The WebGL
   context has no `preserveDrawingBuffer`, so the browser clears the canvas
   once a frame is shown. ml-regl-js therefore queues `screenshot` and answers
@@ -307,7 +324,10 @@ remove generated `mcp_frame_*.bmp` files.
 ## Change discipline
 
 - Keep `server.js` a thin mapping from MCP tools to wire methods. Correlation,
-  timeouts, and registry logic belong in `game_host.js`.
+  timeouts, waiting, and registry logic belong in `game_host.js`; render-tree
+  and image processing in `render_tree.js` and `image.js`. Tools may combine
+  existing wire methods and process their results, but never extend the
+  protocol on the server side.
 - The MCP `instructions` are the only setup guidance a new agent session gets.
   Keep them in sync with tool and host behavior. Build URLs from `controlUrl()`
   and never hardcode a port, because users change `ML_REGL_MCP_PORT`.

@@ -1,10 +1,16 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
 import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { GameRegistry } from "./game_host.js";
+import { decodeBmp, decodePng, fitRect, prepare } from "./image.js";
+import { normalize, query, summarize } from "./render_tree.js";
 
 const { version } = createRequire(import.meta.url)("../package.json");
 const registry = new GameRegistry();
@@ -14,7 +20,8 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
   throw new Error("ML_REGL_MCP_PORT must be an integer between 0 and 65535");
 }
 
-const websocketServer = new WebSocketServer({ host, port, maxPayload: 1024 * 1024 });
+// Render trees of busy scenes run to megabytes; the listener is local.
+const websocketServer = new WebSocketServer({ host, port, maxPayload: 64 * 1024 * 1024 });
 const listening = new Promise((resolve) => {
   websocketServer.once("listening", () => resolve(null));
   websocketServer.once("error", (error) => resolve(error));
@@ -63,10 +70,12 @@ function instructions(url) {
     "- Then poll ml_regl_list_games until the game is listed with protocol 1. Pass its id as gameId when more than one game is connected.",
     "",
     "Working with a game:",
-    "- Prefer ml_regl_get_state (published state, recent logs, frame, clock). ml_regl_get_render_tree can be very large; use it when you need what is drawn on screen.",
-    "- ml_regl_step returns once frames are queued; poll ml_regl_get_state until frame has advanced before reading results. step and set_time switch the game to a deterministic clock that stays on after resume.",
+    "- ml_regl_get_state returns what the game publishes (state, logs), the frame, and the clock.",
+    "- ml_regl_get_render_tree returns a summary of what is drawn: node and program counts, every textbox string with its path and position, and an outline of the top levels. ml_regl_query_render_tree returns nodes by path, program, or text, with their fields. The full tree is never returned.",
+    "- ml_regl_step pauses the game, runs the frames, and returns once they have run (frame, time_ms). The first step or set_time puts the game on a controlled clock that continues from its current time and stays on after resume.",
+    "- ml_regl_send_keys presses keys one after another (key_down, key_up, then framesAfter frames) on the paused game: one call for a whole move sequence. ml_regl_send_input sends single events, including key_press (down then up).",
     "- Input coordinates are in the game's virtual resolution, not window pixels. Input sent while paused shows up in the view after the next stepped frame.",
-    "- Desktop screenshots are BMP files written by the game; the result gives the path. Browser screenshots are returned as images; a fully transparent one means the page loads an old ml-regl-js bundle, which needs rebuilding.",
+    "- ml_regl_screenshot returns a compressed image (JPEG by default). Pass virtualSize (the game's virtual width and height) once to crop the desktop window's letterbox and get one pixel per virtual unit, and region to capture part of the view. A fully transparent browser screenshot means the page loads an old ml-regl-js bundle, which needs rebuilding.",
     "- ml_regl_quit exits a desktop game. A browser game stops its loop but stays listed, and stops answering, until its tab closes.",
   );
   return lines.join("\n");
@@ -104,12 +113,42 @@ server.registerTool("ml_regl_get_state", {
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, async ({ gameId }) => jsonResult(await hostFor(gameId).sendCommand("get_state")));
 
+async function renderTree(gameId) {
+  const host = hostFor(gameId);
+  const result = await host.sendCommand("get_render_tree");
+  const tree = result?.available ? normalize(result.tree) : null;
+  return { host, tree };
+}
+
 server.registerTool("ml_regl_get_render_tree", {
-  title: "Get render tree",
-  description: "Return the latest protobuf render tree converted to JSON.",
+  title: "Summarize render tree",
+  description: "Summarize the last rendered frame: node count, depth, counts per program and effect, every textbox string with its path and position, and an outline of the top levels. Use ml_regl_query_render_tree for nodes and their fields.",
   inputSchema: { gameId: gameIdSchema },
   annotations: { readOnlyHint: true, openWorldHint: false },
-}, async ({ gameId }) => jsonResult(await hostFor(gameId).sendCommand("get_render_tree")));
+}, async ({ gameId }) => {
+  const { host, tree } = await renderTree(gameId);
+  if (!tree) return jsonResult({ available: false });
+  return jsonResult({ available: true, frame: host.latestFrame?.frame ?? null, ...summarize(tree) });
+});
+
+server.registerTool("ml_regl_query_render_tree", {
+  title: "Query render tree",
+  description: "Return nodes of the last rendered frame with their fields. Without filters, the node at path; with program and/or text, every matching node under path. A path is child indices joined by '.' ('' is the root; a composite's left side is 0, right 1), as in the summary.",
+  inputSchema: {
+    gameId: gameIdSchema,
+    path: z.string().optional().describe("Node to return, or to search under; default the root"),
+    program: z.string().optional().describe("Match draw calls and compositors by program name, e.g. textbox, rect"),
+    text: z.string().optional().describe("Match textboxes whose text contains this string"),
+    depth: z.number().int().min(0).max(8).optional().default(0).describe("Levels of children to include with each node"),
+    limit: z.number().int().min(1).max(200).optional().default(20),
+    fullArrays: z.boolean().optional().default(false).describe("Return number arrays longer than 32 in full"),
+  },
+  annotations: { readOnlyHint: true, openWorldHint: false },
+}, async ({ gameId, ...options }) => {
+  const { tree } = await renderTree(gameId);
+  if (!tree) return jsonResult({ available: false });
+  return jsonResult({ available: true, ...query(tree, options) });
+});
 
 server.registerTool("ml_regl_pause", {
   title: "Pause game",
@@ -127,17 +166,17 @@ server.registerTool("ml_regl_resume", {
 
 server.registerTool("ml_regl_step", {
   title: "Step game",
-  description: "Advance a paused game by deterministic frames.",
+  description: "Pause the game and run frames on the controlled clock. With wait (the default), returns once they have run: {done, frame, time_ms}.",
   inputSchema: {
     gameId: gameIdSchema,
     frames: z.number().int().min(1).max(100000).optional().default(1),
-    dtMs: z.number().finite().min(0).optional(),
+    dtMs: z.number().finite().min(0).optional().describe("Game time per frame in milliseconds"),
+    wait: z.boolean().optional().default(true),
+    timeoutMs: z.number().int().min(100).max(600000).optional().default(60000),
   },
-}, async ({ gameId, frames, dtMs }) => {
-  const params = { frames };
-  if (dtMs !== undefined) params.dt_ms = dtMs;
-  return jsonResult(await hostFor(gameId).sendCommand("step", params));
-});
+}, async ({ gameId, frames, dtMs, wait, timeoutMs }) => jsonResult(
+  await hostFor(gameId).stepAndWait({ frames, dtMs, wait, timeoutMs }),
+));
 
 server.registerTool("ml_regl_set_time", {
   title: "Set game time",
@@ -146,56 +185,116 @@ server.registerTool("ml_regl_set_time", {
     gameId: gameIdSchema,
     milliseconds: z.number().finite().min(0),
   },
-}, async ({ gameId, milliseconds }) => jsonResult(
-  await hostFor(gameId).sendCommand("set_time", { ms: milliseconds }),
-));
+}, async ({ gameId, milliseconds }) => {
+  const host = hostFor(gameId);
+  const result = await host.sendCommand("set_time", { ms: milliseconds });
+  host.clockControlled = true;
+  return jsonResult(result);
+});
 
 server.registerTool("ml_regl_send_input", {
   title: "Send game input",
-  description: "Inject a keyboard or mouse event into the selected game.",
+  description: "Inject a keyboard or mouse event into the selected game. key_press sends key_down then key_up.",
   inputSchema: {
     gameId: gameIdSchema,
-    kind: z.enum(["key_down", "key_up", "mouse_down", "mouse_up", "mouse_move"]),
+    kind: z.enum(["key_down", "key_up", "key_press", "mouse_down", "mouse_up", "mouse_move"]),
     code: z.string().optional(),
     button: z.number().int().min(1).max(5).optional(),
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
   },
 }, async ({ gameId, kind, code, button, x, y }) => {
+  const host = hostFor(gameId);
+  if (kind === "key_press") {
+    await host.sendCommand("input", { kind: "key_down", code });
+    return jsonResult(await host.sendCommand("input", { kind: "key_up", code }));
+  }
   const params = { kind };
   if (code !== undefined) params.code = code;
   if (button !== undefined) params.button = button;
   if (x !== undefined) params.x = x;
   if (y !== undefined) params.y = y;
-  return jsonResult(await hostFor(gameId).sendCommand("input", params));
+  return jsonResult(await host.sendCommand("input", params));
+});
+
+server.registerTool("ml_regl_send_keys", {
+  title: "Press keys",
+  description: "Press keys one after another on the paused game: for each, key_down, holdFrames frames, key_up, framesAfter frames. Returns once all have run.",
+  inputSchema: {
+    gameId: gameIdSchema,
+    keys: z.array(z.string().min(1)).min(1).max(500).describe("SDL key names, e.g. [\"Right\", \"Right\", \"Up\"]"),
+    holdFrames: z.number().int().min(0).max(1000).optional().default(0).describe("Frames between key_down and key_up"),
+    framesAfter: z.number().int().min(0).max(1000).optional().default(1).describe("Frames after each key_up"),
+    dtMs: z.number().finite().min(0).optional(),
+    timeoutMs: z.number().int().min(100).max(600000).optional().default(60000),
+  },
+}, async ({ gameId, keys, holdFrames, framesAfter, dtMs, timeoutMs }) => jsonResult(
+  await hostFor(gameId).sendKeys(keys, { holdFrames, framesAfter, dtMs, timeoutMs }),
+));
+
+const sizeSchema = z.object({
+  width: z.number().positive(),
+  height: z.number().positive(),
 });
 
 server.registerTool("ml_regl_screenshot", {
   title: "Capture game screenshot",
-  description: "Capture the current frame. Desktop hosts return a BMP path; browser hosts return a PNG data URL.",
+  description: "Capture the current frame as a compressed image (JPEG by default). With virtualSize, the desktop window's letterbox is cropped, the image has one pixel per virtual unit (capped by maxWidth), and region selects part of the view in virtual units.",
   inputSchema: {
     gameId: gameIdSchema,
-    path: z.string().optional().describe("Desktop output path; omit for a generated path"),
+    virtualSize: sizeSchema.optional().describe("The game's virtual width and height; remembered for later calls"),
+    region: z.object({
+      x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive(),
+    }).optional().describe("Part of the view to capture, in virtual units; needs virtualSize"),
+    format: z.enum(["jpeg", "png"]).optional().default("jpeg"),
+    quality: z.number().int().min(1).max(100).optional().default(70).describe("JPEG quality"),
+    maxWidth: z.number().int().min(16).max(8192).optional().default(1280),
+    path: z.string().optional().describe("Desktop only: also keep the raw BMP capture at this path"),
   },
   annotations: { readOnlyHint: true, openWorldHint: false },
-}, async ({ gameId, path }) => {
-  const result = await hostFor(gameId).sendCommand(
-    "screenshot",
-    path === undefined ? {} : { path },
-  );
-  const dataUrl = result?.data_url;
-  if (typeof dataUrl === "string") {
-    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (match) {
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ format: match[1] }) },
-          { type: "image", mimeType: match[1], data: match[2] },
-        ],
-      };
+}, async ({ gameId, virtualSize, region, format, quality, maxWidth, path: keepPath }) => {
+  const host = hostFor(gameId);
+  if (virtualSize) host.virtualSize = virtualSize;
+  const size = host.virtualSize;
+  const capturePath = keepPath
+    ? path.resolve(keepPath)
+    : path.join(os.tmpdir(), `ml-regl-mcp-${randomUUID()}.bmp`);
+  const result = await host.sendCommand("screenshot", { path: capturePath });
+  let img;
+  let view = null;
+  if (typeof result?.data_url === "string") {
+    const match = result.data_url.match(/^data:image\/png;base64,(.+)$/);
+    if (!match) throw new Error("the browser host returned an unexpected screenshot format");
+    img = decodePng(Buffer.from(match[1], "base64"));
+    // The browser canvas is the virtual area.
+    if (size) view = { x: 0, y: 0, width: img.width, height: img.height };
+  } else if (typeof result?.path === "string") {
+    try {
+      img = decodeBmp(await fs.readFile(result.path));
+    } finally {
+      if (!keepPath) await fs.rm(result.path, { force: true });
     }
+    if (size) view = fitRect(img.width, img.height, size.width, size.height);
+  } else {
+    return jsonResult(result);
   }
-  return jsonResult(result);
+  const out = prepare(img, { view, virtualSize: size, region, maxWidth, format, quality });
+  const info = {
+    format: out.mimeType,
+    width: out.width,
+    height: out.height,
+    bytes: out.data.length,
+    pixelsPerUnit: out.pixelsPerUnit,
+    capture: { width: img.width, height: img.height, view },
+  };
+  if (!size) info.note = "pass virtualSize to crop the letterbox and map pixels to virtual units";
+  if (keepPath && typeof result.path === "string") info.savedPath = result.path;
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(info, null, 2) },
+      { type: "image", mimeType: out.mimeType, data: out.data.toString("base64") },
+    ],
+  };
 });
 
 server.registerTool("ml_regl_quit", {

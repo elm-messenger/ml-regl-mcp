@@ -65,12 +65,18 @@ test("MCP tools drive the native ml-regl smoke game", { timeout: 30000 }, async 
     assert.equal(games.length, 1, "native game did not connect to MCP");
     const gameId = games[0].id;
     assert.equal((await callTool(client, "ml_regl_pause", { gameId })).paused, true);
-    assert.equal((await callTool(client, "ml_regl_step", { gameId, frames: 1, dtMs: 10 })).queued, 1);
+    const step = await callTool(client, "ml_regl_step", { gameId, frames: 3, dtMs: 10 });
+    assert.equal(step.done, true);
     const tree = await callTool(client, "ml_regl_get_render_tree", { gameId });
     assert.equal(tree.available, true);
+    assert.equal(tree.tree, undefined);
+    assert.ok(tree.nodes > 0);
     await callTool(client, "ml_regl_send_input", { gameId, kind: "mouse_move", x: 20, y: 30 });
-    const capture = await callTool(client, "ml_regl_screenshot", { gameId, path: screenshot });
-    assert.equal(capture.path, screenshot);
+    const response = await client.callTool({ name: "ml_regl_screenshot", arguments: { gameId, path: screenshot } });
+    const capture = JSON.parse(response.content.find((item) => item.type === "text").text);
+    assert.equal(capture.savedPath, screenshot);
+    assert.equal(capture.format, "image/jpeg");
+    assert.ok(response.content.some((item) => item.type === "image" && item.data.length > 0));
     assert.ok((await fs.stat(screenshot)).size > 0);
     assert.equal((await callTool(client, "ml_regl_quit", { gameId })).quit, true);
     await new Promise((resolve, reject) => {

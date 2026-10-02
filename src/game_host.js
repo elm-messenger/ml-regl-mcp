@@ -16,6 +16,12 @@ export class GameHost {
     this.latestLogs = [];
     this.latestFrame = null;
     this.pending = new Map();
+    this.frameWaiters = new Set();
+    // Whether this server has put the game on the controlled clock (by
+    // set_time or the first step).
+    this.clockControlled = false;
+    // The game's virtual size, as last given to ml_regl_screenshot.
+    this.virtualSize = null;
     this.commandCounter = 0;
     this.closed = false;
     this._onClose = onClose;
@@ -74,6 +80,77 @@ export class GameHost {
     });
   }
 
+  // Resolve true once a frame event reports [target] or later, false after
+  // [timeoutMs]. Hosts send one after every frame; get_state is polled every
+  // quarter second as well in case one is missed.
+  async waitForFrame(target, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    const reached = () => (this.latestFrame?.frame ?? -Infinity) >= target;
+    while (!reached()) {
+      if (this.closed) throw new Error(`game host ${this.id} disconnected`);
+      const left = deadline - Date.now();
+      if (left <= 0) return false;
+      const woken = await new Promise((resolve) => {
+        const wake = (byFrame) => {
+          clearTimeout(timer);
+          this.frameWaiters.delete(wake);
+          resolve(byFrame);
+        };
+        const timer = setTimeout(() => wake(false), Math.min(250, left));
+        this.frameWaiters.add(wake);
+      });
+      if (!woken && !reached()) {
+        const state = await this.sendCommand("get_state");
+        if (typeof state?.frame === "number" && state.frame > (this.latestFrame?.frame ?? -Infinity)) {
+          this.latestFrame = { frame: state.frame, time_ms: state.time_ms };
+        }
+      }
+    }
+    return true;
+  }
+
+  // The protocol starts the controlled clock at 0 on the first step. Carry
+  // the game's current time over instead, so game time never jumps back.
+  async ensureContinuousClock(state) {
+    if (this.clockControlled) return;
+    const now = (state ?? await this.sendCommand("get_state"))?.time_ms;
+    if (typeof now === "number" && Number.isFinite(now) && now > 0) {
+      await this.sendCommand("set_time", { ms: now });
+    }
+    this.clockControlled = true;
+  }
+
+  // Pause, step [frames] and, with [wait], return once they have run.
+  async stepAndWait({ frames = 1, dtMs, wait = true, timeoutMs = 60000 }) {
+    await this.sendCommand("pause");
+    const before = await this.sendCommand("get_state");
+    await this.ensureContinuousClock(before);
+    const params = { frames };
+    if (dtMs !== undefined) params.dt_ms = dtMs;
+    const queued = await this.sendCommand("step", params);
+    if (!wait) return { queued: queued?.queued ?? frames, frame: before.frame };
+    const target = (before.frame ?? 0) + frames;
+    const done = await this.waitForFrame(target, timeoutMs);
+    const after = await this.sendCommand("get_state");
+    return { done, frame: after.frame, time_ms: after.time_ms, paused: after.paused, ...(done ? {} : { waitingFor: target }) };
+  }
+
+  // Clean presses while paused: key_down, [holdFrames] frames, key_up,
+  // [framesAfter] frames, for each key in turn.
+  async sendKeys(keys, { holdFrames = 0, framesAfter = 1, dtMs, timeoutMs = 60000 }) {
+    let last = null;
+    for (const [index, code] of keys.entries()) {
+      await this.sendCommand("pause");
+      await this.sendCommand("input", { kind: "key_down", code });
+      if (holdFrames > 0) last = await this.stepAndWait({ frames: holdFrames, dtMs, timeoutMs });
+      await this.sendCommand("input", { kind: "key_up", code });
+      if (framesAfter > 0) last = await this.stepAndWait({ frames: framesAfter, dtMs, timeoutMs });
+      if (last && !last.done) return { pressed: index + 1, ...last };
+    }
+    const state = last ?? await this.sendCommand("get_state");
+    return { pressed: keys.length, done: true, frame: state.frame, time_ms: state.time_ms, paused: true };
+  }
+
   close(error = new Error("game host disconnected")) {
     if (this.closed) return;
     this.closed = true;
@@ -130,6 +207,7 @@ export class GameHost {
       if (this.latestLogs.length > 64) this.latestLogs.shift();
     } else if (message.type === "frame") {
       this.latestFrame = message;
+      for (const wake of [...this.frameWaiters]) wake(true);
     }
   }
 }
