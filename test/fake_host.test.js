@@ -59,7 +59,7 @@ class FakeHost {
     this.ready = new Promise((resolve) => this.socket.once("open", resolve));
     this.socket.on("open", () => this.send({
       type: "hello", protocol: 1, runtime: "ml-regl-desktop",
-      capabilities: ["pause", "resume", "step", "set_time", "get_state", "get_render_tree", "screenshot", "screenshot_view", "input"],
+      capabilities: ["pause", "resume", "step", "set_time", "get_state", "get_render_tree", "screenshot", "input"],
     }));
     this.socket.on("message", (data) => this.handle(JSON.parse(data.toString())));
   }
