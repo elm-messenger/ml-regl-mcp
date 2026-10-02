@@ -75,25 +75,30 @@ export class GameHost {
     });
   }
 
-  // Resolve true once a frame event reports [target] or later, false after
-  // [timeoutMs]. Hosts send one after every frame; get_state is polled every
-  // quarter second as well in case one is missed.
-  async waitForFrame(target, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
+  // Resolve true once a frame event reports [target] or later, false at
+  // [deadline] (a Date.now() time); throw when [signal] aborts. Hosts send
+  // one after every frame; get_state is polled every quarter second as well
+  // in case one is missed.
+  async waitForFrame(target, deadline, signal) {
     const reached = () => (this.latestFrame?.frame ?? -Infinity) >= target;
     while (!reached()) {
       if (this.closed) throw new Error(`game host ${this.id} disconnected`);
+      signal?.throwIfAborted();
       const left = deadline - Date.now();
       if (left <= 0) return false;
       const woken = await new Promise((resolve) => {
         const wake = (byFrame) => {
           clearTimeout(timer);
           this.frameWaiters.delete(wake);
+          signal?.removeEventListener("abort", onAbort);
           resolve(byFrame);
         };
+        const onAbort = () => wake(false);
         const timer = setTimeout(() => wake(false), Math.min(250, left));
         this.frameWaiters.add(wake);
+        signal?.addEventListener("abort", onAbort);
       });
+      signal?.throwIfAborted();
       if (!woken && !reached()) {
         const state = await this.sendCommand("get_state");
         if (typeof state?.frame === "number" && state.frame > (this.latestFrame?.frame ?? -Infinity)) {
@@ -104,8 +109,10 @@ export class GameHost {
     return true;
   }
 
-  // Pause, step [frames] and, with [wait], return once they have run.
-  async stepAndWait({ frames = 1, dtMs, wait = true, timeoutMs = 60000 }) {
+  // Pause, step [frames] and, with [wait], return once they have run, or
+  // when [timeoutMs] is up.
+  async stepAndWait({ frames = 1, dtMs, wait = true, timeoutMs = 60000, signal }) {
+    const deadline = Date.now() + timeoutMs;
     await this.sendCommand("pause");
     const before = await this.sendCommand("get_state");
     const params = { frames };
@@ -113,25 +120,41 @@ export class GameHost {
     const queued = await this.sendCommand("step", params);
     if (!wait) return { queued: queued?.queued ?? frames, frame: before.frame };
     const target = (before.frame ?? 0) + frames;
-    const done = await this.waitForFrame(target, timeoutMs);
+    const done = await this.waitForFrame(target, deadline, signal);
     const after = await this.sendCommand("get_state");
     return { done, frame: after.frame, time_ms: after.time_ms, paused: after.paused, ...(done ? {} : { waitingFor: target }) };
   }
 
-  // Clean presses while paused: key_down, [holdFrames] frames, key_up,
-  // [framesAfter] frames, for each key in turn.
-  async sendKeys(keys, { holdFrames = 0, framesAfter = 1, dtMs, timeoutMs = 60000 }) {
-    let last = null;
-    for (const [index, code] of keys.entries()) {
-      await this.sendCommand("pause");
+  // Clean presses on the paused game: key_down, [holdFrames] frames, key_up,
+  // [framesAfter] frames, for each key in turn. [timeoutMs] bounds the whole
+  // call: when it is up, the result says how many keys were pressed.
+  async sendKeys(keys, { holdFrames = 0, framesAfter = 1, dtMs, timeoutMs = 60000, signal }) {
+    const deadline = Date.now() + timeoutMs;
+    await this.sendCommand("pause");
+    let target = (await this.sendCommand("get_state")).frame ?? 0;
+    const run = async (frames) => {
+      const params = { frames };
+      if (dtMs !== undefined) params.dt_ms = dtMs;
+      await this.sendCommand("step", params);
+      target += frames;
+      return this.waitForFrame(target, deadline, signal);
+    };
+    let pressed = 0;
+    let done = true;
+    for (const code of keys) {
+      signal?.throwIfAborted();
+      if (Date.now() >= deadline) { done = false; break; }
       await this.sendCommand("input", { kind: "key_down", code });
-      if (holdFrames > 0) last = await this.stepAndWait({ frames: holdFrames, dtMs, timeoutMs });
+      const held = holdFrames > 0 ? await run(holdFrames) : true;
       await this.sendCommand("input", { kind: "key_up", code });
-      if (framesAfter > 0) last = await this.stepAndWait({ frames: framesAfter, dtMs, timeoutMs });
-      if (last && !last.done) return { pressed: index + 1, ...last };
+      pressed += 1;
+      if (!held || (framesAfter > 0 && !(await run(framesAfter)))) { done = false; break; }
     }
-    const state = last ?? await this.sendCommand("get_state");
-    return { pressed: keys.length, done: true, frame: state.frame, time_ms: state.time_ms, paused: true };
+    const state = await this.sendCommand("get_state");
+    return {
+      pressed, done, frame: state.frame, time_ms: state.time_ms, paused: state.paused,
+      ...(state.frame < target ? { waitingFor: target } : {}),
+    };
   }
 
   close(error = new Error("game host disconnected")) {

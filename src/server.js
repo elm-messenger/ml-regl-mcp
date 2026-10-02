@@ -72,7 +72,7 @@ function instructions(url) {
     "- ml_regl_get_state returns what the game publishes (state, logs), the frame, and the clock.",
     "- ml_regl_get_render_tree returns a summary of what is drawn: node and program counts, every textbox string with its path and position, and an outline of the top levels. ml_regl_query_render_tree returns nodes by path, program, or text, with their fields. The full tree is never returned.",
     "- ml_regl_step pauses the game, runs the frames, and returns once they have run (frame, time_ms). The first step or set_time puts the game on a controlled clock that continues from its current time and stays on after resume.",
-    "- ml_regl_send_keys presses keys one after another (key_down, key_up, then framesAfter frames) on the paused game: one call for a whole move sequence. ml_regl_send_input sends single events, including key_press (down then up).",
+    "- ml_regl_send_keys presses keys one after another (key_down, key_up, then framesAfter frames) on the paused game: one call for a whole move sequence. timeoutMs (default 60 s) bounds the whole call; when it is up, the result has done: false and the number of keys pressed. ml_regl_send_input sends single events, including key_press (down then up).",
     "- Input coordinates are in the game's virtual resolution, not window pixels. Input sent while paused shows up in the view after the next stepped frame.",
     "- ml_regl_screenshot returns the game's view (without the desktop letterbox) as a compressed image, JPEG by default, one pixel per virtual unit up to maxWidth; region captures part of it in virtual units. A fully transparent browser screenshot means the page loads an old ml-regl-js bundle, which needs rebuilding.",
     "- ml_regl_quit exits a desktop game. A browser game stops its loop but stays listed, and stops answering, until its tab closes.",
@@ -171,10 +171,11 @@ server.registerTool("ml_regl_step", {
     frames: z.number().int().min(1).max(100000).optional().default(1),
     dtMs: z.number().finite().min(0).optional().describe("Game time per frame in milliseconds"),
     wait: z.boolean().optional().default(true),
-    timeoutMs: z.number().int().min(100).max(600000).optional().default(60000),
+    timeoutMs: z.number().int().min(100).max(600000).optional().default(60000)
+      .describe("Longest wait in milliseconds (100-600000); then returns done: false"),
   },
-}, async ({ gameId, frames, dtMs, wait, timeoutMs }) => jsonResult(
-  await hostFor(gameId).stepAndWait({ frames, dtMs, wait, timeoutMs }),
+}, async ({ gameId, frames, dtMs, wait, timeoutMs }, { signal }) => jsonResult(
+  await hostFor(gameId).stepAndWait({ frames, dtMs, wait, timeoutMs, signal }),
 ));
 
 server.registerTool("ml_regl_set_time", {
@@ -215,17 +216,18 @@ server.registerTool("ml_regl_send_input", {
 
 server.registerTool("ml_regl_send_keys", {
   title: "Press keys",
-  description: "Press keys one after another on the paused game: for each, key_down, holdFrames frames, key_up, framesAfter frames. Returns once all have run.",
+  description: "Press keys one after another on the paused game: for each, key_down, holdFrames frames, key_up, framesAfter frames. Returns once all have run, or when timeoutMs is up with done: false and the number of keys pressed.",
   inputSchema: {
     gameId: gameIdSchema,
     keys: z.array(z.string().min(1)).min(1).max(500).describe("SDL key names, e.g. [\"Right\", \"Right\", \"Up\"]"),
     holdFrames: z.number().int().min(0).max(1000).optional().default(0).describe("Frames between key_down and key_up"),
     framesAfter: z.number().int().min(0).max(1000).optional().default(1).describe("Frames after each key_up"),
     dtMs: z.number().finite().min(0).optional(),
-    timeoutMs: z.number().int().min(100).max(600000).optional().default(60000),
+    timeoutMs: z.number().int().min(100).max(600000).optional().default(60000)
+      .describe("Time for the whole call in milliseconds (100-600000)"),
   },
-}, async ({ gameId, keys, holdFrames, framesAfter, dtMs, timeoutMs }) => jsonResult(
-  await hostFor(gameId).sendKeys(keys, { holdFrames, framesAfter, dtMs, timeoutMs }),
+}, async ({ gameId, keys, holdFrames, framesAfter, dtMs, timeoutMs }, { signal }) => jsonResult(
+  await hostFor(gameId).sendKeys(keys, { holdFrames, framesAfter, dtMs, timeoutMs, signal }),
 ));
 
 server.registerTool("ml_regl_screenshot", {

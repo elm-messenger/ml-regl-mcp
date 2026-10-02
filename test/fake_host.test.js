@@ -53,6 +53,7 @@ class FakeHost {
     this.controlled = false;
     this.paused = false;
     this.dt = 10;
+    this.frameDelayMs = 5;
     this.log = [];
     this.shape = "desktop";
     this.socket = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -84,7 +85,7 @@ class FakeHost {
       this.paused = true;
       this.respond(id, { queued: params.frames });
       for (let i = 0; i < params.frames; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, this.frameDelayMs));
         this.frame += 1;
         this.timeMs += this.dt;
         this.send({ type: "frame", frame: this.frame, time_ms: this.timeMs });
@@ -209,6 +210,28 @@ test("the server's step, keys, render tree and screenshots on a scripted host", 
     host.shape = "browser";
     const web = await callTool(client, "ml_regl_screenshot", {});
     assert.equal(web.content.find((c) => c.type === "image").data, IMAGE.toString("base64"));
+
+    // timeoutMs bounds the whole send_keys call, on a host that is slow to
+    // run frames (a background browser tab, say).
+    host.frameDelayMs = 300;
+    const started = Date.now();
+    const slow = (await callTool(client, "ml_regl_send_keys", { keys: ["A", "B", "C", "D"], timeoutMs: 700 })).value;
+    assert.equal(slow.done, false);
+    assert.ok(slow.pressed >= 1 && slow.pressed < 4, JSON.stringify(slow));
+    assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 400)); // the queued frame
+
+    // A cancelled call stops pressing keys.
+    host.log = [];
+    const controller = new AbortController();
+    const cancelled = client.callTool({ name: "ml_regl_send_keys", arguments: { keys: ["A", "B", "C", "D", "E"] } },
+      undefined, { signal: controller.signal });
+    setTimeout(() => controller.abort(), 450);
+    await assert.rejects(cancelled);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const downs = host.log.filter((e) => e.method === "input" && e.params.kind === "key_down").length;
+    assert.ok(downs <= 2, `${downs} keys pressed after cancelling`);
+    host.frameDelayMs = 5;
   } finally {
     host.socket.close();
     await client.close();
