@@ -54,11 +54,14 @@ Node 24 has been tested.
 
 The package is published to npm as `ml-regl-mcp` (BSD-3-Clause, same as
 ml-regl and ml-messenger). The `bin` entry `ml-regl-mcp` is `src/server.js`,
-which must keep its `#!/usr/bin/env node` line and executable bit. Users run it
-with `npx -y ml-regl-mcp`.
+which must keep its `#!/usr/bin/env node` line and executable bit. The README
+tells users to run `npx -y github:elm-messenger/ml-regl-mcp` (latest `main`).
+The npm release is `npx -y ml-regl-mcp`, and it falls behind `main` until the
+next publish.
 
 - `files` is `["src"]`. npm always adds `package.json`, `README.md`, and
-  `LICENSE`, so tests, `AGENTS.md`, and the lockfile are not shipped. Check
+  `LICENSE`, so tests, `AGENTS.md`, and the lockfile are not shipped. A
+  `github:` install is packed the same way, so it gets the same files. Check
   with `npm pack --dry-run` after adding files.
 - `serverInfo.version` is read from `package.json`. Bump the version with
   `npm version <patch|minor|major>`, never by editing source.
@@ -71,14 +74,17 @@ with `npx -y ml-regl-mcp`.
 ## Claude Code plugin
 
 The repository is also the Claude Code plugin `ml-regl` and a marketplace
-holding only that plugin (`marketplace.json` has `"source": "./"`). It is
-installed from a checkout (`claude plugin marketplace add <path>`, then
-`claude plugin install ml-regl@ml-regl`), not from npm.
+holding only that plugin (`marketplace.json` has `"source": "./"`). Users
+install it from GitHub (`claude plugin marketplace add
+elm-messenger/ml-regl-mcp`, then `claude plugin install ml-regl@ml-regl`), not
+from npm. An installed plugin is whatever is on GitHub `main`, so push before
+telling anyone to update.
 
 - `plugin.json` declares the MCP server inline. It runs
   `${CLAUDE_PLUGIN_ROOT}/bin/plugin-server`, which installs the production
-  dependencies with `npm ci` when `node_modules` is missing (an installed
-  plugin is a copy without it), then execs `src/server.js`. Like the server,
+  dependencies with `npm ci` when `node_modules` is missing, then execs
+  `src/server.js`. Claude Code 2.1.287 already installs dependencies into the
+  plugin cache, so this is a fallback for clients that don't. Like the server,
   the launcher must write nothing but MCP to stdout. Keep the lockfile
   committed, since `npm ci` needs it.
 - `skills/messenger/` and `skills/rendering/` are skills for
