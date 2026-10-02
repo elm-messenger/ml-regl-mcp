@@ -223,17 +223,22 @@ instructions name the WebSocket URL it listens on (default
    run) and input: `ml_regl_send_keys { keys: ["Right", "Right", "Up"] }`
    presses keys one after another on the paused game, each followed by
    `framesAfter` frames (`holdFrames` keeps a key down for that many frames,
-   for code that reads pressed keys on ticks); `ml_regl_send_input` sends
+   for code that reads pressed keys on ticks; `timeoutMs`, 60 s by default,
+   bounds the whole call, after which it returns `done: false` with the
+   number of keys `pressed`); `ml_regl_send_input` sends
    single events (`key_press`, mouse events in virtual units, not window
    pixels). Input sent while paused is applied at once, but the picture
    changes only after a step.
 3. Look with `ml_regl_get_render_tree`, a summary of what is drawn (node and
    program counts, every textbox string with its path and position, the top
    levels), and `ml_regl_query_render_tree` for nodes by `path`, `program`
-   or `text` with their fields. Or `ml_regl_screenshot`: a JPEG of the view
-   (letterbox cropped) with one pixel per virtual unit; `region` (virtual
-   units) captures part of it. A fully transparent browser screenshot means
-   the page loads an old ml-regl-js bundle, so rebuild it.
+   or `text` with their fields. Or `ml_regl_screenshot`: a JPEG of the
+   latest frame of the view (letterbox cropped) at the virtual size; `region`
+   (virtual units) captures part of it, and `path` keeps a desktop capture
+   (relative to the game's working directory). A fully transparent browser
+   screenshot means the page loads an old ml-regl-js bundle, so download it
+   again. A browser game in a background tab still answers and steps, but
+   runs no frames of its own.
 4. `ml_regl_quit` when done.
 
 The first `step` or `ml_regl_set_time` puts the game on a controlled clock

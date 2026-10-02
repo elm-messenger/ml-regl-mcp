@@ -236,14 +236,21 @@ The project needs a `dune-project` of its own, and dune builds the
 executable for each backend (`references/examples.md`). On desktop, run it
 from the directory the asset paths are relative to. In the browser, the page
 loads the ml-regl-js host bundle and the app's `.bc.js`, both served over
-HTTP, and starts the app (paths are from the served root). The bundle,
-`build/regl.js`, comes from
-[ml-regl-js](https://github.com/elm-messenger/ml-regl-js) (`pnpm i`, then
-`make build`), at the commit ml-regl's `ml-regl-js` submodule pins, so that it
-matches the installed `regl_js`:
+HTTP, and starts the app (paths are from the served root). The bundle is
+published on npm as `ml-regl-js`; download the latest build into the
+project and serve it from there (download it again after updating the
+installed ml-regl):
+
+```sh
+mkdir -p web
+curl -fsSL "https://cdn.jsdelivr.net/npm/ml-regl-js@$(npm view ml-regl-js version)/dist/regl.js" -o web/regl.js
+```
+
+Without `npm`, `https://cdn.jsdelivr.net/npm/ml-regl-js/dist/regl.js` is the
+latest too, but the CDN can take hours to notice a new release. The page:
 
 ```html
-<script src="/ml-regl-js/build/regl.js"></script>
+<script src="/web/regl.js"></script>
 <script src="/_build/default/main_js.bc.js"></script>
 <canvas id="myCanvas"></canvas>
 <script>
@@ -273,17 +280,18 @@ server, run the game from its project directory in the background with
 `DECLGL_DEBUG=1 DECLGL_CONTROL_URL=<url the server reports>` (browser:
 `#mcp=<url>` on the page URL), then `ml_regl_set_time 0` and `ml_regl_step`
 (it pauses and returns once the frames have run) for a deterministic frame,
-and look with `ml_regl_screenshot` (a JPEG of the view, letterbox cropped,
-one pixel per virtual unit; `region` for part of it, `format: "png"` for
-exact colours) or `ml_regl_get_render_tree` (a
+and look with `ml_regl_screenshot` (a JPEG of the latest frame of the view,
+letterbox cropped, at the virtual size; `region` for part of it,
+`format: "png"` for exact colours, `path` to keep a desktop capture, relative
+to the game's working directory) or `ml_regl_get_render_tree` (a
 summary) and `ml_regl_query_render_tree` (nodes and their fields). A program that fails to build is answered with
 `REGLProgramCreateFail`; the desktop host prints the shader error to the
 game's output, not to the MCP logs. `ml_regl_get_state` returns only what
 the game reports itself: `Regl_debug.log` messages as `logs` and the last
 `Regl_debug.publish_state` value as `published`. In the browser, a fully
 transparent `ml_regl_screenshot` means the page loads an old ml-regl-js
-bundle that read the canvas before drawing; rebuild the bundle (or, as a
-stopgap, pass `{ attributes: { antialias: false, depth: false,
+bundle that read the canvas before drawing; download the bundle again (or, as
+a stopgap, pass `{ attributes: { antialias: false, depth: false,
 premultipliedAlpha: true, preserveDrawingBuffer: true } }` as `MlREGL.init`'s
 third argument, which replaces all the default attributes).
 `ml_regl_quit` when done. The window is real: launch only when you need to

@@ -165,11 +165,11 @@ npm test                     # node --test (both tests above)
 | `ml_regl_get_render_tree` | `get_render_tree` | summary of the last rendered frame: `{available, frame, nodes, depth, programs, effects, texts[], outline[]}`; never the full tree |
 | `ml_regl_query_render_tree` | `get_render_tree` | `path`, `program`, `text`, `depth`, `limit`, `fullArrays`; returns `{matches[], total, truncated}` with fields |
 | `ml_regl_pause` / `ml_regl_resume` | `pause` / `resume` | `{paused}` |
-| `ml_regl_step` | `pause`, `get_state`, `step` | `frames` 1..100000 (default 1), optional `dtMs` ≥ 0 sent as `dt_ms`, `wait` (default true), `timeoutMs`; returns `{done, frame, time_ms, paused}` once the frames ran |
+| `ml_regl_step` | `pause`, `get_state`, `step` | `frames` 1..100000 (default 1), optional `dtMs` ≥ 0 sent as `dt_ms`, `wait` (default true), `timeoutMs` (longest wait); returns `{done, frame, time_ms, paused}` once the frames ran; stops waiting when the call is cancelled |
 | `ml_regl_set_time` | `set_time` | `milliseconds` ≥ 0 sent as `ms` |
 | `ml_regl_send_input` | `input` | `kind` ∈ key_down, key_up, key_press (down then up), mouse_down, mouse_up, mouse_move; `code`, `button` 1..5, `x`, `y` |
-| `ml_regl_send_keys` | `pause`, `input`, `step` | `keys[]`, `holdFrames` (default 0), `framesAfter` (default 1), `dtMs`, `timeoutMs`; returns `{pressed, done, frame, time_ms}` |
-| `ml_regl_screenshot` | `screenshot` with `area: "view"`, `scale: "virtual"` | `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the file); the host crops, scales and encodes; returns info (size, `view`, `virtual`, `pixelsPerUnit`) plus MCP `image` content |
+| `ml_regl_send_keys` | `pause` and `get_state` once, then `input`, `step` per key | `keys[]`, `holdFrames` (default 0), `framesAfter` (default 1), `dtMs`, `timeoutMs` (the whole call, default 60 s); returns `{pressed, done, frame, time_ms, paused}`, with `done: false` and `waitingFor` when time ran out; a cancelled call presses no more keys |
+| `ml_regl_screenshot` | `screenshot` with `area: "view"`, `scale: "virtual"` | `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the file; sent as given, so a relative path is relative to the game); the host draws the latest frame again, crops, scales to the virtual size and encodes; returns info (size, `view`, `virtual`, `pixelsPerUnit`, `savedPath`) plus MCP `image` content |
 | `ml_regl_quit` | `quit` | `{quit: true}` |
 | resource `ml-regl://games` | (local) | same JSON as `ml_regl_list_games` |
 
@@ -268,22 +268,35 @@ repo):
   `published: null`, and `time_ms` is the loop time until the clock is
   controlled (`null` from ml-regl-js before `d8860ce`).
   `logs` are plain strings with no levels.
-- **Desktop screenshot.** The game process reads the window back buffer
-  (1419×1670 with letterbox bars in testing), crops it to the view or a
-  region, scales it with a box filter and writes BMP, PNG (SDL) or JPEG
-  (stb_image_write) to the requested path. The server uses a temporary file
-  and deletes it; a 1280×720 JPEG was about 50 KB. An unwritable path gives
-  "screenshot failed". Capture while paused works.
-- **Browser screenshots are taken right after a frame is drawn.** The WebGL
-  context has no `preserveDrawingBuffer`, so the browser clears the canvas
-  once a frame is shown. ml-regl-js therefore queues `screenshot` and answers
-  it after drawing, in the same task. While paused it redraws the last render
-  tree without updating the model, so `frame` does not change. Screenshots
-  requested in the same frame get the same image. Older ml-regl-js bundles
-  read the canvas before drawing and return a fully transparent PNG: rebuild
-  the bundle, or pass `MlREGL.init(canvas, MlApp, { attributes: { antialias:
+- **Desktop screenshot.** The game process draws the latest render tree
+  again (after a swap the back buffer holds the frame before, which older
+  hosts returned), reads the window back
+  buffer (1419×1670 with letterbox bars in testing; a fixed 1280×800 window
+  came out 1279×800 under niri at scale 1.75), crops it to the view or a
+  region, scales it with a box filter to the virtual size and writes BMP,
+  PNG (SDL) or JPEG (stb_image_write). A relative path is relative to the
+  game's working directory, missing directories are created, and errors name
+  the path and the reason. The server uses a temporary file and deletes it;
+  a 1280×720 JPEG was about 50 KB.
+- **Browser screenshots redraw the latest frame.** The WebGL context has no
+  `preserveDrawingBuffer`, so the browser clears the canvas once a frame is
+  shown. ml-regl-js answers `screenshot` at once by drawing the last render
+  tree again, without updating the model, and capturing it in the same task.
+  Older ml-regl-js bundles read the canvas before drawing and return a fully
+  transparent PNG: download the bundle again, or pass `MlREGL.init(canvas, MlApp, { attributes: { antialias:
   false, depth: false, premultipliedAlpha: true, preserveDrawingBuffer: true }
   })`. That object replaces the whole default `attributes`.
+- **Browser hosts in background tabs.** ml-regl-js applies commands as they
+  arrive and runs stepped frames from a `MessageChannel`, so a hidden tab
+  answers and steps at full speed (10 frames in about 10 ms in testing).
+  Its own frames follow `requestAnimationFrame`, which a hidden tab does not
+  get: after `resume` a hidden game stands still. Bundles before this change
+  answered commands only in animation frames, so a hidden tab answered
+  nothing, or one command a second when throttled.
+- **`frame` events count frames run.** Their `frame` equals `get_state`'s
+  afterwards, so a step of n from frame F ends with the event for F + n.
+  Older desktop hosts sent the frame's index (one less), so every desktop
+  wait ended only at the next quarter-second `get_state` poll.
 - **Browser quit is not an exit.** It stops the loop and audio, but the socket
   stays open, so the host stays listed and every later command times out
   until the tab is closed or reloaded.
@@ -314,10 +327,10 @@ To repeat the MCP-level checks (the scratch scripts were not kept):
      `Digit6` gives "Button Status: IDLE". `mouse_down` at (200,200) gives
      "PRESSED". `Backspace` plus about 120 steps of 16 ms returns to Home.
      `Digit2` opens Stress, which has a large tree.
-3. Browser: ml-messenger's `ml-regl-js` submodule is usually empty. Build the
-   host bundle from `../ml-regl/ml-regl-js` (`npm install`, `pbjs` into
-   `src/generated/mlregl_pb.js`, `browserify -t brfs src/app.js > build/regl.js`).
-   Do this in a copy so the sibling repo is not touched. Serve a root that has
+3. Browser: ml-messenger's `ml-regl-js` submodule is usually empty. Download
+   the published bundle (`https://cdn.jsdelivr.net/npm/ml-regl-js@<version>/dist/regl.js`)
+   or, to test unpublished host changes, build it from `../ml-regl/ml-regl-js`
+   (`pnpm i`, `make build`). Serve a root that has
    `ml-regl-js/build/regl.js`, `_build/default/test/...bc.js`, and
    `test/messenger_test/assets`, then open `index.html#mcp=ws://127.0.0.1:<port>`
    in `google-chrome --headless=new --use-angle=swiftshader --enable-unsafe-swiftshader`.

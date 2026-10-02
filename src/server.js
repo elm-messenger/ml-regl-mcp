@@ -74,7 +74,8 @@ function instructions(url) {
     "- ml_regl_step pauses the game, runs the frames, and returns once they have run (frame, time_ms). The first step or set_time puts the game on a controlled clock that continues from its current time and stays on after resume.",
     "- ml_regl_send_keys presses keys one after another (key_down, key_up, then framesAfter frames) on the paused game: one call for a whole move sequence. timeoutMs (default 60 s) bounds the whole call; when it is up, the result has done: false and the number of keys pressed. ml_regl_send_input sends single events, including key_press (down then up).",
     "- Input coordinates are in the game's virtual resolution, not window pixels. Input sent while paused shows up in the view after the next stepped frame.",
-    "- ml_regl_screenshot returns the game's view (without the desktop letterbox) as a compressed image, JPEG by default, one pixel per virtual unit up to maxWidth; region captures part of it in virtual units. A fully transparent browser screenshot means the page loads an old ml-regl-js bundle, which needs rebuilding.",
+    "- ml_regl_screenshot returns the latest frame of the game's view (without the desktop letterbox) as a compressed image, JPEG by default, at the virtual size (one pixel per virtual unit) scaled down to maxWidth; region captures part of it in virtual units. path keeps a desktop capture; a relative path is relative to the game's working directory. A fully transparent browser screenshot means the page loads an old ml-regl-js bundle.",
+    "- A browser game in a background tab answers commands and can be stepped, but runs no frames of its own; keep its tab in front to watch it run.",
     "- ml_regl_quit exits a desktop game. A browser game stops its loop but stays listed, and stops answering, until its tab closes.",
   );
   return lines.join("\n");
