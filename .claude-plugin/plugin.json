@@ -1,7 +1,7 @@
 {
   "name": "ml-regl",
   "displayName": "ml-regl",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Skills for writing ml-messenger games and ml-regl rendering code, and an MCP server for inspecting and driving running ml-regl games.",
   "author": { "name": "Yiming Xiang" },
   "license": "BSD-3-Clause",
