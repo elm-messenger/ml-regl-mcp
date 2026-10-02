@@ -58,7 +58,7 @@ val encode_frame_pb : renderable -> bytes   (* textbox strings appear verbatim; 
 | `linestrip points color`, `lineloop points color` | |
 | `function_curve f (x, y) (left, right) density color` | line strip through `(x + u, y + f u)` for `u` in `left..right`, `density` samples per unit |
 | `poly_prim points indices color primitive` | `Points`, `Lines`, `LineLoop`, `LineStrip`, `Triangles`, `TriangleStrip`, `TriangleFan` |
-| `textbox pos size text font color` | top-left; `size` is the font size |
+| `textbox pos size text font color` | top-left; `size` is the line height (glyphs scale by size / the font's lineHeight) |
 | `textbox_centered center size text font color` | |
 | `textbox_mf pos size text fonts color` | `fonts` is a fallback list |
 | `textbox_mf_centered center size text fonts color` | |
@@ -183,7 +183,9 @@ type window_config = {
 val load_texture : string -> string -> texture_options option -> regl_output
 type texture_options = {
   mag : texture_mag_option option;   (* MagNearest | MagLinear *)
-  min : texture_min_option option;   (* MinNearest | MinLinear | ...Mipmap... *)
+  min : texture_min_option option;   (* MinNearest | MinLinear
+                                        | NearestMipmapNearest | LinearMipmapNearest
+                                        | NearestMipmapLinear | LinearMipmapLinear *)
   crop : ((int * int) * (int * int)) option;   (* ((x, y), (w, h)), pixels from
                                                   the top-left *)
   flip_y : bool;                     (* mirror vertically, after the crop *)
@@ -192,7 +194,7 @@ val default_texture_options : texture_options   (* no crop, no flip *)
 (* load_texture "hero" "assets/sheet.png" (Some { default_texture_options with
      mag = Some MagNearest; crop = Some ((0, 0), (32, 32)) }) *)
 val load_font : string -> string -> string -> regl_output     (* name, png, json *)
-val load_audio : string -> regl_output                        (* url *)
+val load_audio : string -> regl_output     (* url; .wav or .ogg (Vorbis) work on both hosts *)
 val load_file : string -> regl_output                         (* text file *)
 val create_regl_program :
   ?shader_language:shader_language -> string -> Regl_program.regl_program -> regl_output

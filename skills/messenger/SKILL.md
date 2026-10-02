@@ -115,7 +115,19 @@ returned env loses its changes.
 - **Write specs and global components as record literals at top level.** A
   record of functions stays polymorphic; building it through a function call
   can leave weak type variables, which the compiler rejects at the end of a
-  module without an interface.
+  module without an interface. The same goes for a scene output message
+  built by a call, such as `let go_title =
+  Transition_model.gen_sequential_transition_som ... (By_name "Title")`:
+  annotate it (`: User_data.t Scene.scene_output_msg`) or make it a function.
+- **Don't reuse Messenger's module names.** `open Messenger` brings `Ui`,
+  `Scene`, `Component`, `Base`, `Camera`, `Resources`, `Audio`,
+  `Audio_base`, `Global_component`, `Render_texture`, `Loader`, `Model`,
+  `Internal`, `Recursion`, `General_model`, `Raw_scene` and `Vsr` into scope
+  and hides your own modules with those names (errors such as "Unbound type
+  constructor Ui.chip"); `open Messenger_extra` does the same for
+  `Asset_loading`, `Fps`, `Init_update_component`, `Key_code`, `Rng` and the
+  `Transition_*` modules. Name yours differently, or qualify instead of
+  opening.
 - **Targets are compared structurally and hashed**: use strings, ints, or
   simple variants (`Id of int | Kind of string`), never values containing
   functions. Messages addressed to a target nobody answers to are dropped.
@@ -130,7 +142,8 @@ returned env loses its changes.
   the rest; drawing sorts by the z returned from `view`. Put the topmost
   interactive child last.
 - **Ticks carry absolute milliseconds** (`UpdateTick now`); keep the last
-  value to compute a delta. Key names follow SDL (`"Space"`, `"Return"`,
+  value to compute a delta, and count a negative delta as 0: the MCP
+  server's controlled clock starts at 0, far behind the last real tick. Key names follow SDL (`"Space"`, `"Return"`,
   `"Backspace"`, `"Left"`, `"A"`); mouse buttons are 1-based;
   `Messenger_extra.Key_code` names the common ones.
 - **Coordinates**: the origin is the top-left, y grows downward, and the
@@ -178,7 +191,10 @@ returned env loses its changes.
   (textbox strings are stored verbatim). Components read input from the
   event (`x`/`y`, the key) or from `Base.get_mouse_pos runtime` and
   `Base.get_pressed_keys runtime`, which `Ui.update` records from mouse and
-  key events, so a held key is a `KeyDown` followed by ticks. `references/examples.md` ends with such a test.
+  key events, so a held key is a `KeyDown` followed by ticks. No host answers
+  resource loads, so a scene that waits for a `Data_res` needs its reply fed
+  in: `Ui.update input model (Regl_proto.REGLRecvMsg (REGLFileLoaded { path;
+  data }))` with the resource's path. `references/examples.md` ends with such a test.
 - For a scene alone, call `(Scene.unroll scene).update` / `.view` on
   `scene None runtime env` with `runtime = Internal.empty_runtime ()` (set
   `runtime.virtual_size` if the code reads it). A backend must still be
@@ -198,20 +214,29 @@ instructions name the WebSocket URL it listens on (default
    A browser build connects when its page URL ends in `#mcp=<url>`.
 2. `ml_regl_list_games` should show it. `ml_regl_pause`, then drive it with
    `ml_regl_send_input` (SDL key names; mouse positions in virtual units,
-   not window pixels) and `ml_regl_step` (`frames`, `dtMs`).
+   not window pixels) and `ml_regl_step` (`frames`, `dtMs`). For a clean key
+   press, send `key_down` and `key_up` while paused, then step: with the
+   game running, the delay between the two calls looks like a held key.
 3. `step` returns once frames are queued: poll `ml_regl_get_state` until
    `frame` has advanced before looking. Input sent while paused is applied
    at once, but the picture changes only after a step.
 4. Look with `ml_regl_get_render_tree` (search its string leaves for
    textbox text; trees of busy scenes are very large) or
    `ml_regl_screenshot` (desktop writes a BMP into the game's working
-   directory and returns its path; view it, then delete it). A browser
+   directory and returns its path; view it, then delete it). The BMP is the
+   whole window with its letterbox bars: crop it to the virtual area and
+   scale it to the virtual size before reading positions off it. A browser
    screenshot comes back as an image; a fully transparent one means the page
    loads an old ml-regl-js bundle, so rebuild it.
 5. `ml_regl_quit` when done.
 
 `step` and `ml_regl_set_time` switch the game to a controlled clock until it
-restarts. `ml_regl_get_state` shows only what the game reports through
+restarts; the first `step` starts it at 0 unless `set_time` set it, so to
+keep running timers going, `set_time` to the current `time_ms` first. A
+tiling compositor (niri, for example) may tile a resizable window to another
+shape and letterbox the picture; `init_window = {
+Regl_proto.default_window_config with resizable = Some false }` makes niri
+float it at the virtual size. `ml_regl_get_state` shows only what the game reports through
 `Ml_regl_core.Regl_debug` (`log` becomes `logs`, `publish_state` becomes
 `published`); ml-messenger itself reports nothing, so call those from your
 code when you want to watch a value, or use the render tree and

@@ -99,8 +99,11 @@ options, for example `-i chars.txt` for characters beyond printable ASCII,
 `-s` for the glyph size, `-r` for the distance range, and `-m` for the
 largest atlas size.
 
-- `textbox pos size text font color`: `pos` is the top-left of the text,
-  `size` the font size in virtual units; `\n` breaks lines.
+- `textbox pos size text font color`: `pos` is the top-left of the text and
+  `size` the height of one line in virtual units: glyphs are scaled by `size`
+  over the font's `common.lineHeight`, so their em size is `size *
+  info.size / lineHeight` (from the font's JSON), which differs per font.
+  `\n` breaks lines.
 - `textbox_centered center size text font color`.
 - `textbox_mf` / `textbox_mf_centered` take a list of fonts, used as
   fallbacks for missing glyphs.

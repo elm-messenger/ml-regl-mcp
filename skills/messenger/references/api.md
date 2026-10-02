@@ -276,7 +276,7 @@ effects). From `Regl_builtin_programs` (positions and sizes are
 | `circle center radius color` | |
 | `triangle p1 p2 p3 color`, `quad p1 p2 p3 p4 color`, `poly points color` | |
 | `lines [(p, q); ...] color`, `linestrip points color`, `lineloop points color` | |
-| `textbox pos size text font color` | top-left; `size` is the font size |
+| `textbox pos size text font color` | top-left; `size` is the line height (glyphs scale by size / the font's lineHeight) |
 | `textbox_centered center size text font color` | |
 | `textbox_pro pos { default_textbox_option with ... }` | wrapping, alignment, spacing |
 | `rect_texture pos size name` | |
@@ -297,7 +297,7 @@ loaded texture, keeping its aspect ratio when `w` or `h` is `0.`.
 ```ocaml
 type resource_def =                                      (* Messenger.Resources *)
   | Texture_res of string * Regl_proto.texture_options option   (* path *)
-  | Audio_res of string                                  (* path *)
+  | Audio_res of string           (* path: .wav or .ogg (Vorbis) on both hosts *)
   | Font_res of string * string    (* atlas png, BMFont-style json (MSDF) *)
   | Program_res of Regl_program.regl_program * Regl_proto.shader_language
       (* custom shader; GlslEs100 works on both hosts, Glsl is native *)
