@@ -224,9 +224,8 @@ instructions name the WebSocket URL it listens on (default
 3. Look with `ml_regl_get_render_tree`, a summary of what is drawn (node and
    program counts, every textbox string with its path and position, the top
    levels), and `ml_regl_query_render_tree` for nodes by `path`, `program`
-   or `text` with their fields. Or `ml_regl_screenshot { virtualSize: {
-   width; height } }` (the game's virtual size, needed once): a JPEG of the
-   view with one pixel per virtual unit, letterbox cropped; `region` (virtual
+   or `text` with their fields. Or `ml_regl_screenshot`: a JPEG of the view
+   (letterbox cropped) with one pixel per virtual unit; `region` (virtual
    units) captures part of it. A fully transparent browser screenshot means
    the page loads an old ml-regl-js bundle, so rebuild it.
 4. `ml_regl_quit` when done.

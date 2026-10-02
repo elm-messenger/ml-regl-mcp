@@ -263,9 +263,9 @@ server, run the game from its project directory in the background with
 `DECLGL_DEBUG=1 DECLGL_CONTROL_URL=<url the server reports>` (browser:
 `#mcp=<url>` on the page URL), then `ml_regl_set_time 0` and `ml_regl_step`
 (it pauses and returns once the frames have run) for a deterministic frame,
-and look with `ml_regl_screenshot { virtualSize: { width; height } }` (a JPEG
-of the view, letterbox cropped, one pixel per virtual unit; `region` for part
-of it, `format: "png"` for exact colours) or `ml_regl_get_render_tree` (a
+and look with `ml_regl_screenshot` (a JPEG of the view, letterbox cropped,
+one pixel per virtual unit; `region` for part of it, `format: "png"` for
+exact colours) or `ml_regl_get_render_tree` (a
 summary) and `ml_regl_query_render_tree` (nodes and their fields). A program that fails to build is answered with
 `REGLProgramCreateFail`; the desktop host prints the shader error to the
 game's output, not to the MCP logs. `ml_regl_get_state` returns only what
