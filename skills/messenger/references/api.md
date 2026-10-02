@@ -95,6 +95,9 @@ Runtime queries (`Base.get_* runtime`):
 | `get_loading_progress r` | `(loaded, total)` resources |
 | `get_sprite name r` | `Regl_proto.texture option` (`{ name; width; height }`) |
 | `get_fonts r`, `get_programs r` | `Internal.StringSet.t` of the loaded font / program names |
+| `get_font_metrics name r` | the font's `Ml_regl_core.Regl_text.metrics option` |
+| `measure_text ?letter_spacing ?word_spacing ?tab_size ?line_height ?width ?word_break ~fonts ~size text r` | `Regl_text.measured option` (`{ width; height; lines }`); `None` until the fonts' metrics loaded |
+| `measure_textbox option r` | the same for a `textbox_pro` option |
 | `get_config_data key r` | contents of a loaded `Data_res`, `string option` |
 | `get_local_value key r` | last saved or read storage value, `string option` |
 | `get_volume r` | master volume |
@@ -300,7 +303,7 @@ loaded texture, keeping its aspect ratio when `w` or `h` is `0.`.
 type resource_def =                                      (* Messenger.Resources *)
   | Texture_res of string * Regl_proto.texture_options option   (* path *)
   | Audio_res of string           (* path: .wav or .ogg (Vorbis) on both hosts *)
-  | Font_res of string * string    (* atlas png, BMFont-style json (MSDF) *)
+  | Font_res of string * string    (* atlas png, BMFont-style json (MSDF); two loads *)
   | Program_res of Regl_program.regl_program * Regl_proto.shader_language
       (* custom shader; GlslEs100 works on both hosts, Glsl is native *)
   | Data_res of string             (* text file; read with Base.get_config_data *)

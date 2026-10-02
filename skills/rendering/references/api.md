@@ -15,6 +15,7 @@ names. If a signature here does not compile, read the installed interfaces:
 6. `Color`
 7. `Regl_audio` (standalone apps)
 8. `Regl_debug`
+9. `Regl_text`
 
 ## 1. `Regl_common`
 
@@ -264,4 +265,25 @@ val log : ?level:level -> string -> unit
 val logf : ?level:level -> ('a, unit, string, unit) format4 -> 'a
 val publish_state : string -> unit        (* compact one-line JSON *)
 val publish_statef : ('a, unit, string, unit) format4 -> 'a
+```
+
+## 9. `Regl_text`
+
+Text metrics from a font's BMFont JSON (read it with `load_file`), laid out
+exactly as the hosts' textbox does.
+
+```ocaml
+type metrics
+val parse_bmfont : string -> (metrics, string) result
+val line_height : metrics -> float   (* common.lineHeight: size is one line *)
+val em_size : metrics -> float       (* info.size *)
+val has_glyph : metrics -> Uchar.t -> bool
+type measured = { width : float; height : float; lines : float list }
+val measure :
+  ?letter_spacing:float -> ?word_spacing:float -> ?tab_size:float ->
+  ?line_height:float -> ?width:float -> ?word_break:bool ->
+  metrics list -> float -> string -> measured
+  (* fonts in fallback order, size, text *)
+val measure_textbox :
+  (string -> metrics option) -> Regl_builtin_programs.textbox_option -> measured option
 ```

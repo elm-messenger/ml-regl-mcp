@@ -169,6 +169,11 @@ returned env loses its changes.
   kept to two decimals. For other needs (more characters, glyph size), see
   `npx -y msdf-bmfont-xml --help`; the rendering skill's Text section
   describes the useful options.
+  `Base.measure_text ~fonts:[ "font" ] ~size text runtime` (or
+  `Base.measure_textbox option runtime`) returns each line's width and the
+  height as the textbox lays them out, to size a button to its label or put
+  runs side by side. A font's metrics load with it (a `Font_res` counts as two
+  loads), so the result is `Some` once loading has finished.
 - **Assets load asynchronously.** Until a texture or font has loaded, drawing
   it shows nothing. `Messenger_extra.Asset_loading.gen_gc ()` covers the
   screen until everything has loaded; a failed load keeps it up (on purpose:
@@ -194,7 +199,8 @@ returned env loses its changes.
   key events, so a held key is a `KeyDown` followed by ticks. No host answers
   resource loads, so a scene that waits for a `Data_res` needs its reply fed
   in: `Ui.update input model (Regl_proto.REGLRecvMsg (REGLFileLoaded { path;
-  data }))` with the resource's path. `references/examples.md` ends with such a test.
+  data }))` with the resource's path, and the same for a font's JSON when the
+  code measures text. `references/examples.md` ends with such a test.
 - For a scene alone, call `(Scene.unroll scene).update` / `.view` on
   `scene None runtime env` with `runtime = Internal.empty_runtime ()` (set
   `runtime.virtual_size` if the code reads it). A backend must still be

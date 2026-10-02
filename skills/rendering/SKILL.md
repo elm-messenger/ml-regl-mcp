@@ -113,6 +113,16 @@ largest atlas size.
   inside words; `align` is `"left"`, `"center"` or `"right"`, `valign`
   `"top"`, `"center"` or `"bottom"`; `line_height` and `word_spacing` are
   multipliers (default 1), `tab_size` counts spaces (default 4).
+- Measure text before drawing it with `Regl_text`: read the font's JSON (the
+  file given to `load_font`) with `Regl_proto.load_file`, parse it with
+  `Regl_text.parse_bmfont`, then `Regl_text.measure fonts size text` (or
+  `measure_textbox lookup option`) returns each line's width and the height,
+  laid out exactly as the textbox does; `align` uses that width. In
+  ml-messenger, `Base.measure_text` does this for loaded fonts.
+- A character missing from the atlas makes the browser draw nothing for that
+  textbox (the desktop skips the character), so generate the atlas with every
+  character you draw (`-i chars.txt`). msdf-bmfont-xml takes kerning only
+  from a font's legacy `kern` table; many fonts have none and stay unkerned.
 
 ## Textures and sprite sheets
 
