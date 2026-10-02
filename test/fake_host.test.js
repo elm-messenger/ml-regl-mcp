@@ -54,6 +54,7 @@ class FakeHost {
     this.paused = false;
     this.dt = 10;
     this.frameDelayMs = 5;
+    this.cwd = os.tmpdir(); // the game's working directory
     this.log = [];
     this.shape = "desktop";
     this.socket = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -101,8 +102,11 @@ class FakeHost {
       if (this.shape === "browser") {
         return this.respond(id, { data_url: `data:image/jpeg;base64,${IMAGE.toString("base64")}`, ...info });
       }
-      await fs.writeFile(params.path, IMAGE);
-      return this.respond(id, { path: params.path, ...info });
+      // Like the desktop host: relative to the game's directory.
+      const file = path.resolve(this.cwd, params.path);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, IMAGE);
+      return this.respond(id, { path: file, ...info });
     }
     return this.send({ type: "response", id, ok: false, error: { message: "unknown method" } });
   }
@@ -200,12 +204,17 @@ test("the server's step, keys, render tree and screenshots on a scripted host", 
     assert.equal(shot.value.pixelsPerUnit, 1);
     assert.equal(await tmpCount(), before, "the temporary file is deleted");
 
-    const kept = path.join(os.tmpdir(), `kept-${process.pid}.png`);
-    const saved = await callTool(client, "ml_regl_screenshot", { format: "png", path: kept });
+    // A kept path goes to the host as given: a relative one is relative to
+    // the game, not to this server.
+    host.cwd = await fs.mkdtemp(path.join(os.tmpdir(), "fake-game-"));
+    host.log = [];
+    const saved = await callTool(client, "ml_regl_screenshot", { format: "png", path: "shots/kept.png" });
+    assert.equal(host.log.find((e) => e.method === "screenshot").params.path, "shots/kept.png");
+    const kept = path.join(host.cwd, "shots", "kept.png");
     assert.equal(saved.value.savedPath, kept);
     assert.equal(saved.value.format, "image/png");
     assert.deepEqual(await fs.readFile(kept), IMAGE);
-    await fs.rm(kept);
+    await fs.rm(host.cwd, { recursive: true });
 
     host.shape = "browser";
     const web = await callTool(client, "ml_regl_screenshot", {});

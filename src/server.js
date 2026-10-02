@@ -241,14 +241,14 @@ server.registerTool("ml_regl_screenshot", {
     format: z.enum(["jpeg", "png"]).optional().default("jpeg"),
     quality: z.number().int().min(1).max(100).optional().default(70).describe("JPEG quality"),
     maxWidth: z.number().int().min(16).max(8192).optional().default(1280),
-    path: z.string().optional().describe("Desktop only: also keep the image file at this path"),
+    path: z.string().optional().describe("Desktop only: also keep the image file at this path. A relative path is relative to the game's working directory; missing directories are created"),
   },
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, async ({ gameId, region, format, quality, maxWidth, path: keepPath }) => {
   const host = hostFor(gameId);
+  // The host resolves a relative path against its working directory.
   const capturePath = keepPath
-    ? path.resolve(keepPath)
-    : path.join(os.tmpdir(), `ml-regl-mcp-${randomUUID()}.${format === "png" ? "png" : "jpg"}`);
+    ?? path.join(os.tmpdir(), `ml-regl-mcp-${randomUUID()}.${format === "png" ? "png" : "jpg"}`);
   const params = { area: "view", scale: "virtual", max_width: maxWidth, format, quality, path: capturePath };
   if (region) params.region = region;
   const result = await host.sendCommand("screenshot", params);
