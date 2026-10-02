@@ -151,11 +151,11 @@ npm test                     # node --test (both tests above)
 | `ml_regl_get_render_tree` | `get_render_tree` | summary of the last rendered frame: `{available, frame, nodes, depth, programs, effects, texts[], outline[]}`; never the full tree |
 | `ml_regl_query_render_tree` | `get_render_tree` | `path`, `program`, `text`, `depth`, `limit`, `fullArrays`; returns `{matches[], total, truncated}` with fields |
 | `ml_regl_pause` / `ml_regl_resume` | `pause` / `resume` | `{paused}` |
-| `ml_regl_step` | `pause`, `get_state`, `set_time` (first time only), `step` | `frames` 1..100000 (default 1), optional `dtMs` ≥ 0 sent as `dt_ms`, `wait` (default true), `timeoutMs`; returns `{done, frame, time_ms, paused}` once the frames ran |
+| `ml_regl_step` | `pause`, `get_state`, `step` | `frames` 1..100000 (default 1), optional `dtMs` ≥ 0 sent as `dt_ms`, `wait` (default true), `timeoutMs`; returns `{done, frame, time_ms, paused}` once the frames ran |
 | `ml_regl_set_time` | `set_time` | `milliseconds` ≥ 0 sent as `ms` |
 | `ml_regl_send_input` | `input` | `kind` ∈ key_down, key_up, key_press (down then up), mouse_down, mouse_up, mouse_move; `code`, `button` 1..5, `x`, `y` |
 | `ml_regl_send_keys` | `pause`, `input`, `step` | `keys[]`, `holdFrames` (default 0), `framesAfter` (default 1), `dtMs`, `timeoutMs`; returns `{pressed, done, frame, time_ms}` |
-| `ml_regl_screenshot` | `screenshot` with `area: "view"`, `scale: "virtual"` | `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the file); the host crops, scales and encodes; returns info (size, `view`, `virtual`, `pixelsPerUnit`) plus MCP `image` content. Hosts without the `screenshot_view` capability get their raw capture back with a note |
+| `ml_regl_screenshot` | `screenshot` with `area: "view"`, `scale: "virtual"` | `region` (virtual units), `format` jpeg/png (default jpeg), `quality` (70), `maxWidth` (1280), `path` (desktop: keep the file); the host crops, scales and encodes; returns info (size, `view`, `virtual`, `pixelsPerUnit`) plus MCP `image` content |
 | `ml_regl_quit` | `quit` | `{quit: true}` |
 | resource `ml-regl://games` | (local) | same JSON as `ml_regl_list_games` |
 
@@ -242,9 +242,7 @@ repo):
 - **Input while paused is applied immediately** to the OCaml model, but the
   render tree and screenshot only change after a frame runs (`step 1`).
 - **`step` and `set_time` switch the clock to controlled mode for good.** It
-  continues from the game's current time (hosts before ml-regl `63c3919`
-  started it at 0; this server sets it to the game's `time_ms` first for
-  them). After `resume`, time keeps advancing by `dt_ms` per frame, not by
+  continues from the game's current time. After `resume`, time keeps advancing by `dt_ms` per frame, not by
   wall clock. Restarting the game is the only way back to wall-clock time.
 - **The render tree JSON differs by runtime.** Desktop uses
   `fields[].value.numbers` / `value.number` and omits empty fields. Browser

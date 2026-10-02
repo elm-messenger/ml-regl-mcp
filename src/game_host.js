@@ -17,9 +17,6 @@ export class GameHost {
     this.latestFrame = null;
     this.pending = new Map();
     this.frameWaiters = new Set();
-    // Whether this server has put the game on the controlled clock (by
-    // set_time or the first step).
-    this.clockControlled = false;
     this.commandCounter = 0;
     this.closed = false;
     this._onClose = onClose;
@@ -107,23 +104,10 @@ export class GameHost {
     return true;
   }
 
-  // Hosts before ml-regl 63c3919 start the controlled clock at 0 on the first
-  // step. Carry the game's current time over for them; on newer hosts this
-  // sets the time the step would continue from anyway.
-  async ensureContinuousClock(state) {
-    if (this.clockControlled) return;
-    const now = (state ?? await this.sendCommand("get_state"))?.time_ms;
-    if (typeof now === "number" && Number.isFinite(now) && now > 0) {
-      await this.sendCommand("set_time", { ms: now });
-    }
-    this.clockControlled = true;
-  }
-
   // Pause, step [frames] and, with [wait], return once they have run.
   async stepAndWait({ frames = 1, dtMs, wait = true, timeoutMs = 60000 }) {
     await this.sendCommand("pause");
     const before = await this.sendCommand("get_state");
-    await this.ensureContinuousClock(before);
     const params = { frames };
     if (dtMs !== undefined) params.dt_ms = dtMs;
     const queued = await this.sendCommand("step", params);

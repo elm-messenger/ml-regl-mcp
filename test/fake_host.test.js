@@ -47,7 +47,7 @@ function tree(shape) {
 }
 
 class FakeHost {
-  constructor(port, capabilities = ["screenshot_view"]) {
+  constructor(port) {
     this.frame = 0;
     this.timeMs = 70000; // the game has run for 70 s on the wall clock
     this.controlled = false;
@@ -59,7 +59,7 @@ class FakeHost {
     this.ready = new Promise((resolve) => this.socket.once("open", resolve));
     this.socket.on("open", () => this.send({
       type: "hello", protocol: 1, runtime: "ml-regl-desktop",
-      capabilities: ["pause", "resume", "step", "set_time", "get_state", "get_render_tree", "screenshot", "input", ...capabilities],
+      capabilities: ["pause", "resume", "step", "set_time", "get_state", "get_render_tree", "screenshot", "screenshot_view", "input"],
     }));
     this.socket.on("message", (data) => this.handle(JSON.parse(data.toString())));
   }
@@ -77,8 +77,9 @@ class FakeHost {
     if (method === "set_time") { this.timeMs = params.ms; this.controlled = true; return this.respond(id, { time_ms: this.timeMs }); }
     if (method === "input") return this.respond(id, { delivered: true });
     if (method === "step") {
-      // As the protocol says: a first step without set_time starts at 0.
-      if (!this.controlled) { this.controlled = true; this.timeMs = 0; }
+      // As the protocol says: the controlled clock continues from the
+      // current time.
+      this.controlled = true;
       if (params.dt_ms !== undefined) this.dt = params.dt_ms;
       this.paused = true;
       this.respond(id, { queued: params.frames });
@@ -140,8 +141,7 @@ test("the server's step, keys, render tree and screenshots on a scripted host", 
     assert.equal(step.done, true);
     assert.equal(step.frame, 5);
     assert.equal(step.time_ms, 70050);
-    const setTime = host.log.find((entry) => entry.method === "set_time");
-    assert.deepEqual(setTime.params, { ms: 70000 });
+    assert.equal(host.log.filter((e) => e.method === "set_time").length, 0);
 
     // send_keys: clean presses with a frame after each.
     host.log = [];
@@ -150,7 +150,6 @@ test("the server's step, keys, render tree and screenshots on a scripted host", 
     assert.equal(keys.frame, 7);
     const inputs = host.log.filter((e) => e.method === "input").map((e) => `${e.params.kind}:${e.params.code}`);
     assert.deepEqual(inputs, ["key_down:Right", "key_up:Right", "key_down:Up", "key_up:Up"]);
-    assert.equal(host.log.filter((e) => e.method === "set_time").length, 0, "the clock is set only once");
 
     host.log = [];
     await callTool(client, "ml_regl_send_input", { kind: "key_press", code: "Space" });
@@ -210,22 +209,6 @@ test("the server's step, keys, render tree and screenshots on a scripted host", 
     host.shape = "browser";
     const web = await callTool(client, "ml_regl_screenshot", {});
     assert.equal(web.content.find((c) => c.type === "image").data, IMAGE.toString("base64"));
-
-    // A host from before screenshot_view gets its raw capture and a note.
-    const firstId = (await callTool(client, "ml_regl_list_games")).value[0].id;
-    const old = new FakeHost(port, []);
-    await old.ready;
-    let oldId;
-    for (let i = 0; i < 50 && !oldId; i += 1) {
-      const games = (await callTool(client, "ml_regl_list_games")).value;
-      oldId = games.find((g) => g.id !== firstId && g.protocol === 1)?.id;
-      if (!oldId) await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    old.shape = "browser";
-    const legacy = await callTool(client, "ml_regl_screenshot", { gameId: oldId });
-    assert.match(legacy.value.note, /predates screenshot_view/);
-    assert.equal(old.log.find((e) => e.method === "screenshot").params.area, undefined);
-    old.socket.close();
   } finally {
     host.socket.close();
     await client.close();

@@ -184,12 +184,9 @@ server.registerTool("ml_regl_set_time", {
     gameId: gameIdSchema,
     milliseconds: z.number().finite().min(0),
   },
-}, async ({ gameId, milliseconds }) => {
-  const host = hostFor(gameId);
-  const result = await host.sendCommand("set_time", { ms: milliseconds });
-  host.clockControlled = true;
-  return jsonResult(result);
-});
+}, async ({ gameId, milliseconds }) => jsonResult(
+  await hostFor(gameId).sendCommand("set_time", { ms: milliseconds }),
+));
 
 server.registerTool("ml_regl_send_input", {
   title: "Send game input",
@@ -250,21 +247,6 @@ server.registerTool("ml_regl_screenshot", {
   const capturePath = keepPath
     ? path.resolve(keepPath)
     : path.join(os.tmpdir(), `ml-regl-mcp-${randomUUID()}.${format === "png" ? "png" : "jpg"}`);
-  if (!host.capabilities.includes("screenshot_view")) {
-    // A host from before screenshot_view: the raw capture, unprocessed.
-    const result = await host.sendCommand("screenshot", { path: capturePath });
-    const match = typeof result?.data_url === "string" && result.data_url.match(/^data:([^;]+);base64,(.+)$/);
-    const note = "this host predates screenshot_view, so the capture is not cropped, scaled or compressed; update ml-regl";
-    if (match) {
-      return {
-        content: [
-          { type: "text", text: JSON.stringify({ format: match[1], note }, null, 2) },
-          { type: "image", mimeType: match[1], data: match[2] },
-        ],
-      };
-    }
-    return jsonResult({ ...result, note });
-  }
   const params = { area: "view", scale: "virtual", max_width: maxWidth, format, quality, path: capturePath };
   if (region) params.region = region;
   const result = await host.sendCommand("screenshot", params);
