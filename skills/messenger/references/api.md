@@ -148,6 +148,8 @@ global components. Performed by the framework after the update.
 | `SOMLoadResource (name, def)` | load a resource at run time |
 | `SOMSaveValue (key, value)` | persist a string |
 | `SOMReadValue key` | read it back; answered by a `ValueRead` event |
+| `SOMConfigWindow window` | change window flags or the title (`Regl_proto.window_config`; `None` fields stay unchanged) |
+| `SOMQuit` | close the window (desktop) or stop the loop (browser) |
 
 ## 5. Components (`Component`)
 

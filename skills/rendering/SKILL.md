@@ -261,11 +261,12 @@ ml-messenger, the component's z and its parent actually draws it.
 Compiling proves nothing about pixels. With the plugin's `ml-regl` MCP
 server, run the game from its project directory in the background with
 `DECLGL_DEBUG=1 DECLGL_CONTROL_URL=<url the server reports>` (browser:
-`#mcp=<url>` on the page URL), then `ml_regl_pause`, `ml_regl_set_time 0` and
-`ml_regl_step` for a deterministic frame, poll `ml_regl_get_state` until the
-frame advanced, and look with `ml_regl_screenshot` (desktop: a BMP in the
-game's working directory; view it, then delete it) or
-`ml_regl_get_render_tree`. A program that fails to build is answered with
+`#mcp=<url>` on the page URL), then `ml_regl_set_time 0` and `ml_regl_step`
+(it pauses and returns once the frames have run) for a deterministic frame,
+and look with `ml_regl_screenshot { virtualSize: { width; height } }` (a JPEG
+of the view, letterbox cropped, one pixel per virtual unit; `region` for part
+of it, `format: "png"` for exact colours) or `ml_regl_get_render_tree` (a
+summary) and `ml_regl_query_render_tree` (nodes and their fields). A program that fails to build is answered with
 `REGLProgramCreateFail`; the desktop host prints the shader error to the
 game's output, not to the MCP logs. `ml_regl_get_state` returns only what
 the game reports itself: `Regl_debug.log` messages as `logs` and the last

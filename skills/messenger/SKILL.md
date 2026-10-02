@@ -212,28 +212,28 @@ instructions name the WebSocket URL it listens on (default
    resolve, pointing it at the server:
    `DECLGL_DEBUG=1 DECLGL_CONTROL_URL=<url> dune exec ./bin/main.exe`.
    A browser build connects when its page URL ends in `#mcp=<url>`.
-2. `ml_regl_list_games` should show it. `ml_regl_pause`, then drive it with
-   `ml_regl_send_input` (SDL key names; mouse positions in virtual units,
-   not window pixels) and `ml_regl_step` (`frames`, `dtMs`). For a clean key
-   press, send `key_down` and `key_up` while paused, then step: with the
-   game running, the delay between the two calls looks like a held key.
-3. `step` returns once frames are queued: poll `ml_regl_get_state` until
-   `frame` has advanced before looking. Input sent while paused is applied
-   at once, but the picture changes only after a step.
-4. Look with `ml_regl_get_render_tree` (search its string leaves for
-   textbox text; trees of busy scenes are very large) or
-   `ml_regl_screenshot` (desktop writes a BMP into the game's working
-   directory and returns its path; view it, then delete it). The BMP is the
-   whole window with its letterbox bars: crop it to the virtual area and
-   scale it to the virtual size before reading positions off it. A browser
-   screenshot comes back as an image; a fully transparent one means the page
-   loads an old ml-regl-js bundle, so rebuild it.
-5. `ml_regl_quit` when done.
+2. `ml_regl_list_games` should show it. Drive it with `ml_regl_step`
+   (`frames`, `dtMs`; it pauses the game and returns once the frames have
+   run) and input: `ml_regl_send_keys { keys: ["Right", "Right", "Up"] }`
+   presses keys one after another on the paused game, each followed by
+   `framesAfter` frames (`holdFrames` keeps a key down for that many frames,
+   for code that reads pressed keys on ticks); `ml_regl_send_input` sends
+   single events (`key_press`, mouse events in virtual units, not window
+   pixels). Input sent while paused is applied at once, but the picture
+   changes only after a step.
+3. Look with `ml_regl_get_render_tree`, a summary of what is drawn (node and
+   program counts, every textbox string with its path and position, the top
+   levels), and `ml_regl_query_render_tree` for nodes by `path`, `program`
+   or `text` with their fields. Or `ml_regl_screenshot { virtualSize: {
+   width; height } }` (the game's virtual size, needed once): a JPEG of the
+   view with one pixel per virtual unit, letterbox cropped; `region` (virtual
+   units) captures part of it. A fully transparent browser screenshot means
+   the page loads an old ml-regl-js bundle, so rebuild it.
+4. `ml_regl_quit` when done.
 
-`step` and `ml_regl_set_time` switch the game to a controlled clock until it
-restarts; the first `step` starts it at 0 unless `set_time` set it, so to
-keep running timers going, `set_time` to the current `time_ms` first. A
-tiling compositor (niri, for example) may tile a resizable window to another
+The first `step` or `ml_regl_set_time` puts the game on a controlled clock
+that continues from its current time and stays on until the game restarts.
+A tiling compositor (niri, for example) may tile a resizable window to another
 shape and letterbox the picture; `init_window = {
 Regl_proto.default_window_config with resizable = Some false }` makes niri
 float it at the virtual size. `ml_regl_get_state` shows only what the game reports through
